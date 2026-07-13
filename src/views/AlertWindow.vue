@@ -13,7 +13,6 @@
 		<!-- 标题区 -->
 		<div class="title-area">
 			<h1 class="title">{{ titleText }}</h1>
-			<p class="subtitle">{{ subtitleText }}</p>
 		</div>
 
 		<!-- 进度环 -->
@@ -44,12 +43,10 @@
 
 		<!-- 操作按钮 -->
 		<div v-if="isSittingAlert" class="actions">
-			<button class="btn-primary" @click="startRest">
-				🌿 开始休息（{{ autoRestCountdown }} 秒后自动开始）
-			</button>
+			<button class="btn-primary" @click="startRest">立即开始休息</button>
 			<div class="btn-row">
-				<button class="btn-secondary" @click="extend">⏱ 再等一会</button>
-				<button class="btn-ghost" @click="skip">跳过</button>
+				<button class="btn-secondary" @click="extend">稍后再说</button>
+				<button class="btn-ghost" @click="skip">跳过本次</button>
 			</div>
 		</div>
 
@@ -61,8 +58,8 @@
 				<div class="tip">💧 顺便去喝杯水</div>
 			</div>
 			<div class="btn-row">
-				<button class="btn-secondary" @click="extend">⏱ 再等一会</button>
-				<button class="btn-ghost" @click="skip">取消休息</button>
+				<button class="btn-secondary" @click="extend">继续工作</button>
+				<button class="btn-ghost" @click="skip">结束休息</button>
 			</div>
 		</div>
 
@@ -163,16 +160,10 @@ const titleText = computed(() => {
 	return "准备开始休息";
 });
 
-const subtitleText = computed(() => {
-	if (isRestingAlert.value) return "计时结束后窗口将自动关闭";
-	if (isWaterAlert.value) return "喝口水吧！";
-	return "可以立即开始休息，也可以再延长一会";
-});
-
 const ringLabel = computed(() => {
 	if (isRestingAlert.value) return "休息剩余";
 	if (isWaterAlert.value) return "自动关闭";
-	return "自动开始";
+	return "后自动休息";
 });
 
 const iconClass = computed(() => {
@@ -466,15 +457,8 @@ onUnmounted(() => {
 	font-size: 20px;
 	font-weight: 700;
 	color: #111827;
-	margin: 0 0 4px;
-	letter-spacing: -0.02em;
-}
-
-.subtitle {
-	font-size: 12px;
-	color: #6b7280;
-	line-height: 1.5;
 	margin: 0;
+	letter-spacing: -0.02em;
 }
 
 /* ── 自动倒计时提示 ── */

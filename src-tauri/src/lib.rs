@@ -5,6 +5,7 @@ use config::{
     autostart_supported, config_path, is_autostart_enabled, load_config, save_config,
     set_autostart_enabled, AppConfig, SettingsPayload,
 };
+use std::fs;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{
@@ -107,6 +108,31 @@ fn open_settings(app: AppHandle) {
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
+    }
+}
+
+/// 打开配置目录，便于用户直接查看或备份配置
+#[tauri::command]
+fn open_config_dir() -> Result<(), String> {
+    let config_dir = config_path()
+        .parent()
+        .map(|path| path.to_path_buf())
+        .ok_or_else(|| "无法解析配置目录".to_string())?;
+
+    fs::create_dir_all(&config_dir).map_err(|err| err.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&config_dir)
+            .spawn()
+            .map_err(|err| err.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("当前平台暂不支持直接打开配置目录".to_string())
     }
 }
 
@@ -398,6 +424,7 @@ pub fn run() {
             hide_popup,
             show_popup,
             open_settings,
+            open_config_dir,
             set_timer_config,
         ])
         .setup(move |app| {

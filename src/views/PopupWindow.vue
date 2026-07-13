@@ -22,11 +22,10 @@
 		<!-- 久坐倒计时 -->
 		<div class="timer-block">
 			<div class="timer-label">
-				<span class="timer-icon">🪑</span>
-				<span class="timer-label-text">久坐</span>
+				<span class="timer-icon">{{ timerLabelIcon }}</span>
+				<span class="timer-label-text">{{ timerLabel }}</span>
 			</div>
 			<div class="countdown size-main">{{ mainCountdown }}</div>
-			<div class="timer-sub">{{ subLabel }}</div>
 		</div>
 
 		<!-- 分隔线 -->
@@ -39,7 +38,7 @@
 			<span class="water-time">{{ formatTime(state.waterRemaining) }}</span>
 		</div>
 
-		<div class="helper-text">右键托盘可打开设置，左键可查看时间</div>
+		<div class="helper-text">右键托盘图标可打开设置页</div>
 	</div>
 </template>
 
@@ -114,19 +113,23 @@ const phaseBadgeClass = computed(() => {
 	}
 });
 
-const subLabel = computed(() => {
+const timerLabel = computed(() => {
 	switch (state.value.phase) {
 		case "running":
-			return "距下次提醒";
+			return "距离下次休息";
 		case "triggered":
-			return "请处理提醒";
+			return "距离下次休息";
 		case "resting":
-			return "休息倒计时";
+			return "休息剩余时间";
 		case "paused":
 			return "提醒已暂停";
 		default:
 			return "";
 	}
+});
+
+const timerLabelIcon = computed(() => {
+	return state.value.phase === "resting" ? "🛌" : "⏱️";
 });
 
 // ── 操作 ─────────────────────────────────
@@ -280,7 +283,7 @@ onUnmounted(() => {
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 1px;
+	gap: 4px;
 }
 
 .timer-label {
@@ -312,13 +315,6 @@ onUnmounted(() => {
 
 .countdown.size-main {
 	font-size: 38px;
-}
-
-.timer-sub {
-	font-size: 10px;
-	color: #9ca3af;
-	letter-spacing: 0.04em;
-	margin-top: 2px;
 }
 
 /* ── 分隔线 ── */

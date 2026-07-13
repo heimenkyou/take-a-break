@@ -57,8 +57,16 @@ pub fn config_path() -> PathBuf {
     base_dir.join("data").join("config.json")
 }
 
+/// 确保配置目录存在，便于前端直接打开文件夹
+fn ensure_config_dir() {
+    if let Some(parent) = config_path().parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+}
+
 /// 读取本地配置文件；缺失或损坏时回退到默认配置
 pub fn load_config() -> AppConfig {
+    ensure_config_dir();
     let path = config_path();
     fs::read_to_string(path)
         .ok()
@@ -131,6 +139,10 @@ pub fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
             } else {
                 Err("写入开机启动项失败".to_string())
             };
+        }
+
+        if !is_autostart_enabled() {
+            return Ok(());
         }
 
         let status = Command::new("reg")
