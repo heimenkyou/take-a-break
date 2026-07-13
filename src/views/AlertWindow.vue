@@ -1,74 +1,74 @@
 <template>
-  <div class="alert-root anim-fade-in">
-    <div class="alert-card glass-card">
-      <!-- 顶部装饰光晕 -->
-      <div class="glow-orb" />
+	<div class="alert-root">
+		<!-- 图标 -->
+		<div class="icon-wrap" :class="isResting ? 'icon--rest' : 'icon--alert'">
+			{{ isResting ? "🌿" : "🪑" }}
+		</div>
 
-      <!-- 图标区 -->
-      <div class="icon-wrap" :class="iconWrapClass">
-        <span class="icon">{{ phaseIcon }}</span>
-      </div>
+		<!-- 标题区 -->
+		<div class="title-area">
+			<h1 class="title">{{ isResting ? "休息一下" : "该活动了！" }}</h1>
+			<p class="subtitle">
+				{{ isResting ? "计时结束后窗口将自动关闭" : "你已经高强度专注很久了，起来活动一下吧" }}
+			</p>
+		</div>
 
-      <!-- 标题区 -->
-      <div class="title-area">
-        <h1 class="title">{{ title }}</h1>
-        <p class="subtitle">{{ subtitle }}</p>
-      </div>
+		<!-- 自动开始倒计时提示（仅 triggered 阶段） -->
+		<div v-if="!isResting" class="auto-hint">
+			{{ autoRestCountdown }} 秒后自动开始休息
+		</div>
 
-      <!-- 倒计时 / 进度区 -->
-      <div class="countdown-area">
-        <svg class="progress-ring" width="120" height="120" viewBox="0 0 120 120">
-          <defs>
-            <linearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#7c6af7" />
-              <stop offset="100%" stop-color="#a78bfa" />
-            </linearGradient>
-          </defs>
-          <circle class="progress-ring__track" cx="60" cy="60" r="52" stroke-width="5" />
-          <circle
-            class="progress-ring__fill"
-            cx="60" cy="60" r="52" stroke-width="5"
-            :stroke-dasharray="circumference"
-            :stroke-dashoffset="dashOffset"
-          />
-        </svg>
-        <div class="countdown-overlay">
-          <span class="countdown" :style="{ fontSize: '34px' }">{{ displayTime }}</span>
-          <span class="countdown-label">{{ countdownLabel }}</span>
-        </div>
-      </div>
+		<!-- 进度环 -->
+		<div class="ring-wrap">
+			<svg class="ring-svg" width="160" height="160" viewBox="0 0 160 160">
+				<defs>
+					<linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="100%">
+						<stop offset="0%" stop-color="#7c3aed" />
+						<stop offset="100%" stop-color="#a78bfa" />
+					</linearGradient>
+				</defs>
+				<circle class="ring-track" cx="80" cy="80" r="70" stroke-width="8" />
+				<circle
+					class="ring-fill"
+					cx="80"
+					cy="80"
+					r="70"
+					stroke-width="8"
+					:stroke-dasharray="circumference"
+					:stroke-dashoffset="dashOffset"
+				/>
+			</svg>
+			<div class="ring-center">
+				<span class="ring-time">{{ displayTime }}</span>
+				<span class="ring-label">{{ isResting ? "休息剩余" : "已超时" }}</span>
+			</div>
+		</div>
 
-      <!-- 操作按钮区 -->
-      <div v-if="state.phase === 'triggered'" class="actions anim-fade-in-up">
-        <button class="btn btn-primary" style="width: 100%" @click="startRest">
-          🌿 开始休息 · 5 分钟
-        </button>
-        <div class="actions-row">
-          <button class="btn btn-ghost" style="flex: 1" @click="extend">
-            ⏱ 再等 5 分钟
-          </button>
-          <button class="btn btn-danger-ghost" style="flex: 1" @click="skip">
-            ⚡ 跳过
-          </button>
-        </div>
-      </div>
+		<!-- 操作按钮 -->
+		<div v-if="!isResting" class="actions">
+			<button class="btn-primary" @click="startRest">🌿 开始休息</button>
+			<div class="btn-row">
+				<button class="btn-secondary" @click="extend">⏱ 再等一会</button>
+				<button class="btn-ghost" @click="skip">跳过</button>
+			</div>
+		</div>
 
-      <!-- 休息中状态 -->
-      <div v-else-if="state.phase === 'resting'" class="rest-tip anim-fade-in">
-        <div class="rest-tips-list">
-          <div class="tip-item">👁 看向 6 米外，放松眼部肌肉</div>
-          <div class="tip-item">🧘 起立做几次深呼吸</div>
-          <div class="tip-item">💧 顺便去接杯水</div>
-        </div>
-      </div>
-    </div>
-  </div>
+		<!-- 休息中：提示 + 取消按钮 -->
+		<div v-else class="rest-content">
+			<div class="tips-card">
+				<div class="tip">👁 看向 6 米外，放松眼睛</div>
+				<div class="tip">🧘 起立深呼吸几次</div>
+				<div class="tip">💧 顺便去喝杯水</div>
+			</div>
+			<button class="btn-ghost" @click="skip">取消休息</button>
+		</div>
+	</div>
 </template>
 
 <script setup>
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { computed, onMounted, onUnmounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 const state = ref({
 	phase: "triggered",
@@ -77,7 +77,14 @@ const state = ref({
 	restRemaining: 5 * 60,
 	sittingInterval: 50 * 60,
 	waterInterval: 80 * 60,
+	restDuration: 5 * 60,
+	extendDuration: 5 * 60,
 });
+
+/** 自动开始休息的倒计时秒数 */
+const autoRestCountdown = ref(10);
+/** @type {number|null} */
+let autoRestTimer = null;
 
 // ── 格式化 ──────────────────────────────
 
@@ -93,14 +100,15 @@ function formatTime(secs) {
 
 // ── 计算属性 ─────────────────────────────
 
-const circumference = 2 * Math.PI * 52; // ≈ 326.7
+const isResting = computed(() => state.value.phase === "resting");
+
+const circumference = 2 * Math.PI * 70; // ≈ 439.8
 
 const progressRatio = computed(() => {
 	const s = state.value;
 	if (s.phase === "resting") {
-		return s.restRemaining / (5 * 60);
+		return s.restRemaining / (s.restDuration || 5 * 60);
 	}
-	// triggered: 显示已等待比例（从满格开始递减）
 	return Math.max(0, s.sittingRemaining / s.sittingInterval);
 });
 
@@ -112,39 +120,53 @@ const displayTime = computed(() => {
 	return formatTime(s.sittingRemaining < 0 ? 0 : s.sittingRemaining);
 });
 
-const countdownLabel = computed(() =>
-	state.value.phase === "resting" ? "休息剩余" : "已超时",
-);
+// ── 自动开始休息倒计时 ───────────────────
 
-const phaseIcon = computed(() =>
-	state.value.phase === "resting" ? "🌿" : "⏰",
-);
+function startAutoCountdown() {
+	stopAutoCountdown();
+	autoRestCountdown.value = 10;
+	autoRestTimer = setInterval(() => {
+		autoRestCountdown.value -= 1;
+		if (autoRestCountdown.value <= 0) {
+			stopAutoCountdown();
+			startRest();
+		}
+	}, 1000);
+}
 
-const iconWrapClass = computed(() =>
-	state.value.phase === "resting" ? "icon-wrap--rest" : "icon-wrap--alert",
-);
+function stopAutoCountdown() {
+	if (autoRestTimer !== null) {
+		clearInterval(autoRestTimer);
+		autoRestTimer = null;
+	}
+}
 
-const title = computed(() =>
-	state.value.phase === "resting" ? "休息一下" : "该活动了！",
-);
-
-const subtitle = computed(() =>
-	state.value.phase === "resting"
-		? "计时结束后窗口将自动关闭，下次提醒重新开始"
-		: "你已经高强度专注了很久，起来活动一下吧",
+// phase 切换到 triggered 时启动自动倒计时
+watch(
+	() => state.value.phase,
+	(phase) => {
+		if (phase === "triggered") {
+			startAutoCountdown();
+		} else {
+			stopAutoCountdown();
+		}
+	},
 );
 
 // ── 操作 ─────────────────────────────────
 
 function startRest() {
+	stopAutoCountdown();
 	invoke("user_action", { action: "start_rest" });
 }
 
 function skip() {
+	stopAutoCountdown();
 	invoke("user_action", { action: "skip" });
 }
 
 function extend() {
+	stopAutoCountdown();
 	invoke("user_action", { action: "extend" });
 }
 
@@ -155,159 +177,248 @@ let unlistenTick = null;
 onMounted(async () => {
 	state.value = await invoke("get_timer_state");
 
+	// 初始状态若已是 triggered，立即启动
+	if (state.value.phase === "triggered") {
+		startAutoCountdown();
+	}
+
 	unlistenTick = await listen("timer-tick", ({ payload }) => {
 		state.value = payload;
 	});
 });
 
 onUnmounted(() => {
+	stopAutoCountdown();
 	unlistenTick?.();
 });
 </script>
 
 <style scoped>
+/* ── 根容器：浅色不透明背景，填满窗口 ── */
 .alert-root {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
+	width: 100%;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 16px;
+	padding: 28px 24px;
+	background: #f5f7ff;
+	font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+	animation: fadeInUp 0.3s ease both;
 }
 
-.alert-card {
-  width: 440px;
-  border-radius: 28px;
-  padding: 32px 28px 28px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-  position: relative;
-  overflow: hidden;
-  animation: cardEntrance 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
-}
-
-@keyframes cardEntrance {
-  from {
-    opacity: 0;
-    transform: scale(0.88) translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-/* 顶部紫色光晕 */
-.glow-orb {
-  position: absolute;
-  top: -60px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 240px;
-  height: 120px;
-  background: radial-gradient(ellipse, rgba(124, 106, 247, 0.4), transparent 70%);
-  pointer-events: none;
+@keyframes fadeInUp {
+	from {
+		opacity: 0;
+		transform: translateY(12px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }
 
 /* ── 图标 ── */
 .icon-wrap {
-  width: 60px;
-  height: 60px;
-  border-radius: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28px;
+	width: 56px;
+	height: 56px;
+	border-radius: 16px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 26px;
+	flex-shrink: 0;
 }
 
-.icon-wrap--alert {
-  background: linear-gradient(135deg, rgba(124, 106, 247, 0.2), rgba(167, 139, 250, 0.1));
-  border: 1px solid rgba(124, 106, 247, 0.3);
-  animation: pulse-glow 2.5s ease-in-out infinite;
+.icon--alert {
+	background: #ede9fe;
+	border: 1.5px solid #c4b5fd;
 }
 
-.icon-wrap--rest {
-  background: linear-gradient(135deg, rgba(74, 222, 128, 0.15), rgba(74, 222, 128, 0.05));
-  border: 1px solid rgba(74, 222, 128, 0.25);
+.icon--rest {
+	background: #dcfce7;
+	border: 1.5px solid #86efac;
 }
 
 /* ── 标题 ── */
 .title-area {
-  text-align: center;
+	text-align: center;
 }
 
 .title {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--color-text-primary);
-  margin-bottom: 6px;
-  letter-spacing: -0.02em;
+	font-size: 20px;
+	font-weight: 700;
+	color: #111827;
+	margin: 0 0 4px;
+	letter-spacing: -0.02em;
 }
 
 .subtitle {
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  line-height: 1.5;
-  max-width: 300px;
+	font-size: 12px;
+	color: #6b7280;
+	line-height: 1.5;
+	margin: 0;
+}
+
+/* ── 自动倒计时提示 ── */
+.auto-hint {
+	font-size: 12px;
+	color: #7c3aed;
+	background: #ede9fe;
+	padding: 4px 12px;
+	border-radius: 100px;
+	font-weight: 500;
 }
 
 /* ── 进度环 ── */
-.countdown-area {
-  position: relative;
-  width: 120px;
-  height: 120px;
+.ring-wrap {
+	position: relative;
+	width: 160px;
+	height: 160px;
+	flex-shrink: 0;
 }
 
-.countdown-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
+.ring-svg {
+	transform: rotate(-90deg);
 }
 
-.countdown-label {
-  font-size: 10px;
-  color: var(--color-text-muted);
-  letter-spacing: 0.05em;
+.ring-track {
+	fill: none;
+	stroke: #e9eaf0;
 }
 
-/* ── 按钮区 ── */
+.ring-fill {
+	fill: none;
+	stroke: url(#rg);
+	stroke-linecap: round;
+	transition: stroke-dashoffset 0.8s ease;
+}
+
+.ring-center {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 2px;
+}
+
+.ring-time {
+	font-family: "JetBrains Mono", "Fira Code", monospace;
+	font-size: 30px;
+	font-weight: 600;
+	color: #1f2937;
+	line-height: 1;
+	letter-spacing: -0.02em;
+}
+
+.ring-label {
+	font-size: 11px;
+	color: #9ca3af;
+	letter-spacing: 0.04em;
+}
+
+/* ── 操作按钮 ── */
 .actions {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
 }
 
-.actions-row {
-  display: flex;
-  gap: 10px;
+.btn-row {
+	display: flex;
+	gap: 8px;
 }
 
-/* ── 休息提示 ── */
-.rest-tip {
-  width: 100%;
+.btn-primary {
+	width: 100%;
+	padding: 11px 0;
+	background: linear-gradient(135deg, #7c3aed, #a78bfa);
+	color: #fff;
+	border: none;
+	border-radius: 10px;
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+	font-family: inherit;
+	transition:
+		transform 0.15s,
+		box-shadow 0.15s;
+	box-shadow: 0 4px 14px rgba(124, 58, 237, 0.35);
 }
 
-.rest-tips-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+.btn-primary:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 6px 20px rgba(124, 58, 237, 0.45);
 }
 
-.tip-item {
-  font-size: 13px;
-  color: var(--color-text-secondary);
-  line-height: 1.4;
+.btn-secondary {
+	flex: 1;
+	padding: 9px 0;
+	background: #ede9fe;
+	color: #6d28d9;
+	border: none;
+	border-radius: 10px;
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+	font-family: inherit;
+	transition: background 0.15s;
+}
+
+.btn-secondary:hover {
+	background: #ddd6fe;
+}
+
+.btn-ghost {
+	flex: 1;
+	padding: 9px 0;
+	background: #f3f4f6;
+	color: #6b7280;
+	border: none;
+	border-radius: 10px;
+	font-size: 13px;
+	font-weight: 500;
+	cursor: pointer;
+	font-family: inherit;
+	transition: background 0.15s;
+}
+
+.btn-ghost:hover {
+	background: #e5e7eb;
+	color: #374151;
+}
+
+/* ── 休息中内容 ── */
+.rest-content {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.tips-card {
+	background: #ffffff;
+	border: 1px solid #e9eaf0;
+	border-radius: 12px;
+	padding: 12px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.tip {
+	font-size: 13px;
+	color: #374151;
+	line-height: 1.4;
+}
+
+/* 休息中取消按钮：全宽 */
+.rest-content .btn-ghost {
+	width: 100%;
 }
 </style>

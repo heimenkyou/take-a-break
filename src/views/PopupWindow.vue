@@ -1,5 +1,6 @@
 <template>
-	<div class="popup-root anim-fade-in" data-tauri-drag-region>
+	<!-- mousedown 在非按钮区域时触发系统拖动 -->
+	<div class="popup-root anim-fade-in" @mousedown="handleMouseDown">
 		<!-- 顶栏：状态徽章 + 操作按钮 -->
 		<div class="header-row">
 			<span :class="['badge', phaseBadgeClass]">
@@ -7,7 +8,6 @@
 				{{ phaseLabel }}
 			</span>
 			<div class="header-actions">
-				<!-- 置顶 pin：固定后不再 blur 隐藏 -->
 				<button
 					:class="['icon-btn', { 'icon-btn--active': pinned }]"
 					:title="pinned ? '取消固定' : '固定窗口'"
@@ -136,6 +136,15 @@ function togglePin() {
 	pinned.value = !pinned.value;
 }
 
+/**
+ * 点击非按钮区域时触发系统级窗口拖动
+ * @param {MouseEvent} e
+ */
+function handleMouseDown(e) {
+	if (e.target.closest("button")) return;
+	appWindow.startDragging();
+}
+
 // ── 生命周期 ─────────────────────────────
 
 let unlistenTick = null;
@@ -148,7 +157,6 @@ onMounted(async () => {
 		state.value = payload;
 	});
 
-	// 未固定时，失焦自动隐藏
 	unlistenBlur = await appWindow.listen("tauri://blur", () => {
 		if (!pinned.value) {
 			invoke("hide_popup");
@@ -173,13 +181,11 @@ onUnmounted(() => {
 	gap: 6px;
 	position: relative;
 	overflow: hidden;
-	/* 不透明浅色背景 */
 	background: #ffffff;
 	border: 1px solid #e2e5ea;
 	box-shadow:
 		0 4px 16px rgba(0, 0, 0, 0.12),
 		0 1px 4px rgba(0, 0, 0, 0.06);
-	/* 拖动光标（整个窗口可拖动） */
 	cursor: move;
 }
 
@@ -197,7 +203,6 @@ onUnmounted(() => {
 	gap: 2px;
 }
 
-/* 徽章 */
 .badge {
 	display: inline-flex;
 	align-items: center;
@@ -237,7 +242,6 @@ onUnmounted(() => {
 	background: currentColor;
 }
 
-/* 图标按钮（置顶 / 关闭） */
 .icon-btn {
 	background: none;
 	border: none;
@@ -257,7 +261,6 @@ onUnmounted(() => {
 	color: #374151;
 }
 
-/* 置顶激活状态 */
 .icon-btn--active {
 	color: #7c3aed;
 	background: #ede9fe;
@@ -289,7 +292,7 @@ onUnmounted(() => {
 	color: #9ca3af;
 }
 
-/* 覆盖全局 countdown 的暗色渐变，改为浅色深色文字 */
+/* 覆盖全局 countdown 的暗色渐变为浅色文字 */
 .countdown {
 	font-family: "JetBrains Mono", "Fira Code", monospace;
 	font-weight: 600;

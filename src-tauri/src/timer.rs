@@ -26,10 +26,14 @@ pub struct TimerSnapshot {
     pub water_remaining: i64,
     /// 休息倒计时剩余秒数（仅 Resting 阶段有意义）
     pub rest_remaining: i64,
-    /// 当前久坐间隔配置（用于前端显示进度）
+    /// 当前久坐间隔配置
     pub sitting_interval: u64,
     /// 当前喝水间隔配置
     pub water_interval: u64,
+    /// 休息时长配置
+    pub rest_duration: u64,
+    /// 延长等待时长配置
+    pub extend_duration: u64,
 }
 
 /// 计时器内部状态，由 tokio 任务持有并修改
@@ -71,6 +75,8 @@ impl AppTimer {
             rest_remaining: self.rest_remaining,
             sitting_interval: self.sitting_interval,
             water_interval: self.water_interval,
+            rest_duration: self.rest_duration,
+            extend_duration: self.extend_duration,
         }
     }
 }

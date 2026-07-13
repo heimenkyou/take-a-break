@@ -11,7 +11,7 @@ use tauri_plugin_notification::NotificationExt;
 use timer::{AppTimer, Phase, SharedTimer};
 
 // ─────────────────────────────────────────
-// Tauri Commands（前端可调用）
+// Tauri Commands
 // ─────────────────────────────────────────
 
 /// 获取当前计时器快照，供前端初始化时同步状态
@@ -30,7 +30,7 @@ fn user_action(action: String, state: State<'_, SharedTimer>, app: AppHandle) {
             t.phase = Phase::Resting;
             t.rest_remaining = t.rest_duration as i64;
         }
-        // 跳过：直接重置久坐计时，关闭 alert 窗口
+        // 跳过 / 取消休息：重置久坐计时，关闭 alert 窗口
         "skip" => {
             t.phase = Phase::Running;
             t.sitting_remaining = t.sitting_interval as i64;
@@ -44,7 +44,7 @@ fn user_action(action: String, state: State<'_, SharedTimer>, app: AppHandle) {
             drop(t);
             hide_alert(&app);
         }
-        // 暂停/恢复：仅在 Running 阶段有效
+        // 暂停/恢复
         "pause_toggle" => {
             t.phase = if t.phase == Phase::Paused {
                 Phase::Running
@@ -61,6 +61,46 @@ fn user_action(action: String, state: State<'_, SharedTimer>, app: AppHandle) {
 fn hide_popup(app: AppHandle) {
     if let Some(w) = app.get_webview_window("popup") {
         let _ = w.hide();
+    }
+}
+
+/// 打开设置窗口
+#[tauri::command]
+fn open_settings(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+}
+
+/// 更新计时器配置（来自设置页面，单位：秒）
+#[tauri::command]
+fn set_timer_config(
+    sitting_interval_secs: Option<u64>,
+    water_interval_secs: Option<u64>,
+    rest_duration_secs: Option<u64>,
+    extend_duration_secs: Option<u64>,
+    state: State<'_, SharedTimer>,
+) {
+    let mut t = state.lock().unwrap();
+    if let Some(v) = sitting_interval_secs {
+        t.sitting_interval = v;
+        // 若剩余超过新上限则截断，避免下次提醒遥遥无期
+        if t.sitting_remaining > v as i64 {
+            t.sitting_remaining = v as i64;
+        }
+    }
+    if let Some(v) = water_interval_secs {
+        t.water_interval = v;
+        if t.water_remaining > v as i64 {
+            t.water_remaining = v as i64;
+        }
+    }
+    if let Some(v) = rest_duration_secs {
+        t.rest_duration = v;
+    }
+    if let Some(v) = extend_duration_secs {
+        t.extend_duration = v;
     }
 }
 
@@ -106,7 +146,6 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
         loop {
             tokio::time::sleep(Duration::from_secs(1)).await;
 
-            // 计算本次 tick 结果，尽量缩短锁持有时间
             let (snapshot, side_effect) = {
                 let mut t = timer.lock().unwrap();
 
@@ -116,7 +155,6 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
                     Phase::Resting => {
                         t.rest_remaining -= 1;
                         if t.rest_remaining <= 0 {
-                            // 休息结束，重置久坐计时，回到 Running
                             t.phase = Phase::Running;
                             t.sitting_remaining = t.sitting_interval as i64;
                             Some("rest-ended")
@@ -126,7 +164,6 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
                     }
 
                     Phase::Triggered => {
-                        // 触发等待期间继续计喝水计时
                         t.water_remaining -= 1;
                         if t.water_remaining <= 0 {
                             t.water_remaining = t.water_interval as i64;
@@ -140,10 +177,8 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
                         t.sitting_remaining -= 1;
                         t.water_remaining -= 1;
 
-                        // 喝水优先级低，只发 toast
                         if t.water_remaining <= 0 {
                             t.water_remaining = t.water_interval as i64;
-                            // 若久坐也同时归零，优先处理久坐
                             if t.sitting_remaining <= 0 {
                                 t.phase = Phase::Triggered;
                                 Some("sitting-triggered")
@@ -162,7 +197,6 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
                 (t.snapshot(), effect)
             };
 
-            // 处理副作用（窗口操作 / 通知）
             if let Some(effect) = side_effect {
                 match effect {
                     "sitting-triggered" => show_alert(&app),
@@ -179,7 +213,6 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
                 }
             }
 
-            // 每秒广播状态快照到所有前端窗口
             let _ = app.emit("timer-tick", snapshot);
         }
     });
@@ -201,19 +234,46 @@ pub fn run() {
             get_timer_state,
             user_action,
             hide_popup,
+            open_settings,
+            set_timer_config,
         ])
         .setup(|app| {
-            // 构建托盘右键菜单
-            let menu = Menu::with_items(
-                app,
-                &[
-                    &MenuItem::with_id(app, "pause", "暂停提醒", true, None::<&str>)?,
-                    // ── 调试用快捷触发项 ──
-                    &MenuItem::with_id(app, "debug_sitting", "[调试] 立即触发久坐提醒", true, None::<&str>)?,
-                    &MenuItem::with_id(app, "debug_water", "[调试] 立即触发喝水提醒", true, None::<&str>)?,
-                    &MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?,
-                ],
-            )?;
+            let pause_item =
+                MenuItem::with_id(app, "pause", "暂停提醒", true, None::<&str>)?;
+            let settings_item =
+                MenuItem::with_id(app, "settings", "打开设置", true, None::<&str>)?;
+            let quit_item =
+                MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+
+            // 调试菜单项仅在 debug 构建中出现
+            let menu = if cfg!(debug_assertions) {
+                let debug_sitting = MenuItem::with_id(
+                    app,
+                    "debug_sitting",
+                    "[调试] 立即触发久坐提醒",
+                    true,
+                    None::<&str>,
+                )?;
+                let debug_water = MenuItem::with_id(
+                    app,
+                    "debug_water",
+                    "[调试] 立即触发喝水提醒",
+                    true,
+                    None::<&str>,
+                )?;
+                Menu::with_items(
+                    app,
+                    &[
+                        &settings_item,
+                        &pause_item,
+                        &debug_sitting,
+                        &debug_water,
+                        &quit_item,
+                    ],
+                )?
+            } else {
+                Menu::with_items(app, &[&settings_item, &pause_item, &quit_item])?
+            };
 
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
@@ -221,7 +281,6 @@ pub fn run() {
                 .menu(&menu)
                 .show_menu_on_left_click(false)
                 .on_tray_icon_event(|tray, event| {
-                    // 左键单击：切换 popup 窗口显示
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
                         button_state: MouseButtonState::Up,
@@ -241,6 +300,12 @@ pub fn run() {
                     }
                 })
                 .on_menu_event(|app, event| match event.id.as_ref() {
+                    "settings" => {
+                        if let Some(w) = app.get_webview_window("settings") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    }
                     "pause" => {
                         let state = app.state::<SharedTimer>();
                         let mut t = state.lock().unwrap();
@@ -250,13 +315,12 @@ pub fn run() {
                             Phase::Paused
                         };
                     }
-                    // 调试：将久坐计时归零，触发提醒弹窗
+                    // 调试：仅 debug 构建可触发，生产构建菜单中无此项
                     "debug_sitting" => {
                         let state = app.state::<SharedTimer>();
                         let mut t = state.lock().unwrap();
                         t.sitting_remaining = 0;
                     }
-                    // 调试：发送喝水系统通知
                     "debug_water" => {
                         let _ = app
                             .notification()
@@ -270,7 +334,6 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // 启动后台计时器
             let app_handle = app.handle().clone();
             start_timer_loop(app_handle, timer_state);
 

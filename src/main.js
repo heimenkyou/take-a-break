@@ -12,6 +12,11 @@ if (hash.startsWith("#/popup")) {
 } else if (hash.startsWith("#/alert")) {
 	const { default: AlertWindow } = await import("./views/AlertWindow.vue");
 	rootComponent = AlertWindow;
+} else if (hash.startsWith("#/settings")) {
+	const { default: SettingsWindow } = await import(
+		"./views/SettingsWindow.vue"
+	);
+	rootComponent = SettingsWindow;
 } else {
 	// 兜底：空壳（此项目无独立 main 窗口）
 	const { default: App } = await import("./App.vue");
