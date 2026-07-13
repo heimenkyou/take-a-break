@@ -16,11 +16,6 @@
 			<p class="subtitle">{{ subtitleText }}</p>
 		</div>
 
-		<!-- 自动开始倒计时提示（仅 triggered 阶段） -->
-		<div v-if="isSittingAlert" class="auto-hint">
-			{{ autoRestCountdown }} 秒后自动开始休息
-		</div>
-
 		<!-- 进度环 -->
 		<div class="ring-wrap">
 			<svg class="ring-svg" width="160" height="160" viewBox="0 0 160 160">
@@ -49,7 +44,9 @@
 
 		<!-- 操作按钮 -->
 		<div v-if="isSittingAlert" class="actions">
-			<button class="btn-primary" @click="startRest">🌿 开始休息</button>
+			<button class="btn-primary" @click="startRest">
+				🌿 开始休息（{{ autoRestCountdown }} 秒后自动开始）
+			</button>
 			<div class="btn-row">
 				<button class="btn-secondary" @click="extend">⏱ 再等一会</button>
 				<button class="btn-ghost" @click="skip">跳过</button>
@@ -63,7 +60,10 @@
 				<div class="tip">🧘 起立深呼吸几次</div>
 				<div class="tip">💧 顺便去喝杯水</div>
 			</div>
-			<button class="btn-ghost" @click="skip">取消休息</button>
+			<div class="btn-row">
+				<button class="btn-secondary" @click="extend">⏱ 再等一会</button>
+				<button class="btn-ghost" @click="skip">取消休息</button>
+			</div>
 		</div>
 
 		<div v-else-if="isWaterAlert" class="water-content">
@@ -106,6 +106,8 @@ let autoRestTimer = null;
 let unlistenTick = null;
 /** @type {string | null} */
 let lastPlayedAlert = null;
+/** @type {number|null} */
+let restMelodyTimer = null;
 
 // ── 格式化 ──────────────────────────────
 
@@ -145,6 +147,7 @@ const displayTime = computed(() => {
 	const s = state.value;
 	if (isRestingAlert.value) return formatTime(s.restRemaining);
 	if (isWaterAlert.value) return formatTime(s.waterAlertRemaining);
+	if (isSittingAlert.value) return formatTime(autoRestCountdown.value);
 	return formatTime(s.sittingRemaining < 0 ? 0 : s.sittingRemaining);
 });
 
@@ -156,20 +159,20 @@ const windowTitle = computed(() => {
 
 const titleText = computed(() => {
 	if (isRestingAlert.value) return "休息一下";
-	if (isWaterAlert.value) return "喝口水";
-	return "该活动了！";
+	if (isWaterAlert.value) return "该喝水了";
+	return "准备开始休息";
 });
 
 const subtitleText = computed(() => {
 	if (isRestingAlert.value) return "计时结束后窗口将自动关闭";
-	if (isWaterAlert.value) return "短暂提醒一下，喝几口水就好";
-	return "你已经高强度专注很久了，起来活动一下吧";
+	if (isWaterAlert.value) return "喝口水吧！";
+	return "可以立即开始休息，也可以再延长一会";
 });
 
 const ringLabel = computed(() => {
 	if (isRestingAlert.value) return "休息剩余";
 	if (isWaterAlert.value) return "自动关闭";
-	return "已超时";
+	return "自动开始";
 });
 
 const iconClass = computed(() => {
@@ -218,11 +221,20 @@ function playAlertSound(kind) {
 					{ freq: 880, start: 0, duration: 0.09 },
 					{ freq: 1174, start: 0.12, duration: 0.12 },
 				]
-			: [
-					{ freq: 659, start: 0, duration: 0.12 },
-					{ freq: 784, start: 0.16, duration: 0.12 },
-					{ freq: 988, start: 0.34, duration: 0.18 },
-				];
+			: kind === "resting-loop"
+				? [
+						{ freq: 523, start: 0, duration: 0.22 },
+						{ freq: 659, start: 0.28, duration: 0.22 },
+						{ freq: 784, start: 0.58, duration: 0.26 },
+						{ freq: 659, start: 0.94, duration: 0.24 },
+						{ freq: 698, start: 1.28, duration: 0.24 },
+						{ freq: 880, start: 1.6, duration: 0.34 },
+					]
+				: [
+						{ freq: 659, start: 0, duration: 0.12 },
+						{ freq: 784, start: 0.16, duration: 0.12 },
+						{ freq: 988, start: 0.34, duration: 0.18 },
+					];
 
 	for (const note of notes) {
 		const oscillator = ctx.createOscillator();
@@ -241,9 +253,12 @@ function playAlertSound(kind) {
 		oscillator.stop(now + note.start + note.duration);
 	}
 
-	setTimeout(() => {
-		ctx.close();
-	}, 1000);
+	setTimeout(
+		() => {
+			ctx.close();
+		},
+		kind === "resting-loop" ? 3000 : 1000,
+	);
 }
 
 /** 当前提醒切换时播放提示音，避免每秒 tick 重复触发 */
@@ -256,6 +271,21 @@ function syncAlertSound() {
 	if (lastPlayedAlert === current) return;
 	lastPlayedAlert = current;
 	playAlertSound(current);
+}
+
+/** 休息阶段每隔一段时间播放短旋律，提醒当前仍在休息中 */
+function startRestMelodyLoop() {
+	stopRestMelodyLoop();
+	restMelodyTimer = setInterval(() => {
+		playAlertSound("resting-loop");
+	}, 30000);
+}
+
+function stopRestMelodyLoop() {
+	if (restMelodyTimer !== null) {
+		clearInterval(restMelodyTimer);
+		restMelodyTimer = null;
+	}
 }
 
 /**
@@ -276,6 +306,12 @@ watch(
 			startAutoCountdown();
 		} else {
 			stopAutoCountdown();
+		}
+
+		if (alertKind === "resting") {
+			startRestMelodyLoop();
+		} else {
+			stopRestMelodyLoop();
 		}
 
 		syncAlertSound();
@@ -325,6 +361,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
 	stopAutoCountdown();
+	stopRestMelodyLoop();
 	unlistenTick?.();
 });
 </script>

@@ -38,6 +38,8 @@
 			<span class="water-text">喝水</span>
 			<span class="water-time">{{ formatTime(state.waterRemaining) }}</span>
 		</div>
+
+		<div class="helper-text">右键托盘可打开设置，左键可查看时间</div>
 	</div>
 </template>
 
@@ -59,7 +61,8 @@ const state = ref({
 });
 
 /** 是否已固定（固定后 blur 不自动隐藏） */
-const pinned = ref(false);
+const pinned = ref(true);
+const dragging = ref(false);
 
 // ── 格式化 ──────────────────────────────
 
@@ -142,6 +145,10 @@ function togglePin() {
  */
 function handleMouseDown(e) {
 	if (e.target.closest("button")) return;
+	dragging.value = true;
+	setTimeout(() => {
+		dragging.value = false;
+	}, 400);
 	appWindow.startDragging();
 }
 
@@ -158,7 +165,7 @@ onMounted(async () => {
 	});
 
 	unlistenBlur = await appWindow.listen("tauri://blur", () => {
-		if (!pinned.value) {
+		if (!pinned.value && !dragging.value) {
 			invoke("hide_popup");
 		}
 	});
@@ -344,5 +351,12 @@ onUnmounted(() => {
 	font-size: 12px;
 	color: #374151;
 	font-weight: 500;
+}
+
+.helper-text {
+	font-size: 10px;
+	color: #9ca3af;
+	text-align: center;
+	flex-shrink: 0;
 }
 </style>

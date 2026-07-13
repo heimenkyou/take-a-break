@@ -1,5 +1,10 @@
+mod config;
 mod timer;
 
+use config::{
+    autostart_supported, config_path, is_autostart_enabled, load_config, save_config,
+    set_autostart_enabled, AppConfig, SettingsPayload,
+};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{
@@ -17,6 +22,19 @@ use timer::{AlertKind, AppTimer, Phase, SharedTimer};
 #[tauri::command]
 fn get_timer_state(state: State<'_, SharedTimer>) -> timer::TimerSnapshot {
     state.lock().unwrap().snapshot()
+}
+
+/// 获取设置页所需的持久化配置与说明信息
+#[tauri::command]
+fn get_settings() -> Result<SettingsPayload, String> {
+    let mut config = load_config();
+    config.autostart_enabled = is_autostart_enabled();
+
+    Ok(SettingsPayload {
+        config,
+        config_path: config_path().display().to_string(),
+        autostart_supported: autostart_supported(),
+    })
 }
 
 /// 用户操作：start_rest / skip / extend / pause_toggle
@@ -71,6 +89,17 @@ fn hide_popup(app: AppHandle) {
     }
 }
 
+/// 打开托盘计时弹窗
+#[tauri::command]
+fn show_popup(app: AppHandle) {
+    position_popup_bottom_right(&app);
+    if let Some(popup) = app.get_webview_window("popup") {
+        let _ = popup.unminimize();
+        let _ = popup.show();
+        let _ = popup.set_focus();
+    }
+}
+
 /// 打开设置窗口
 #[tauri::command]
 fn open_settings(app: AppHandle) {
@@ -97,6 +126,7 @@ fn register_settings_close_handler(app: &AppHandle) {
 /// 更新计时器配置（来自设置页面，单位：秒）
 #[tauri::command]
 fn set_timer_config(
+    silent_start: Option<bool>,
     auto_rest_secs: Option<u64>,
     sitting_interval_secs: Option<u64>,
     water_interval_secs: Option<u64>,
@@ -104,9 +134,10 @@ fn set_timer_config(
     extend_duration_secs: Option<u64>,
     rest_enabled: Option<bool>,
     water_enabled: Option<bool>,
+    autostart_enabled: Option<bool>,
     app: AppHandle,
     state: State<'_, SharedTimer>,
-) {
+) -> Result<(), String> {
     let mut t = state.lock().unwrap();
     if let Some(v) = auto_rest_secs {
         t.auto_rest_secs = v;
@@ -146,6 +177,27 @@ fn set_timer_config(
         }
     }
 
+    let mut config = AppConfig {
+        silent_start: silent_start.unwrap_or_else(|| load_config().silent_start),
+        auto_rest_secs: t.auto_rest_secs,
+        sitting_interval_secs: t.sitting_interval,
+        water_interval_secs: t.water_interval,
+        rest_duration_secs: t.rest_duration,
+        extend_duration_secs: t.extend_duration,
+        rest_enabled: t.rest_enabled,
+        water_enabled: t.water_enabled,
+        autostart_enabled: autostart_enabled.unwrap_or_else(is_autostart_enabled),
+    };
+
+    if let Some(v) = autostart_enabled {
+        set_autostart_enabled(v)?;
+        config.autostart_enabled = v;
+    } else {
+        config.autostart_enabled = is_autostart_enabled();
+    }
+
+    save_config(&config)?;
+
     let snapshot = t.snapshot();
     let should_hide_alert = snapshot.active_alert.is_none();
     drop(t);
@@ -155,6 +207,7 @@ fn set_timer_config(
     }
 
     let _ = app.emit("timer-tick", snapshot);
+    Ok(())
 }
 
 // ─────────────────────────────────────────
@@ -221,10 +274,7 @@ fn position_popup_bottom_right(app: &AppHandle) {
 
 /// 显示托盘状态窗一小段时间，作为启动成功反馈
 fn show_popup_temporarily(app: AppHandle, seconds: u64) {
-    position_popup_bottom_right(&app);
-    if let Some(popup) = app.get_webview_window("popup") {
-        let _ = popup.show();
-    }
+    show_popup(app.clone());
 
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(seconds)).await;
@@ -333,21 +383,28 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let timer_state: SharedTimer = Arc::new(Mutex::new(AppTimer::new()));
+    let initial_config = load_config();
+    let mut timer = AppTimer::new();
+    timer.apply_config(&initial_config);
+    let timer_state: SharedTimer = Arc::new(Mutex::new(timer));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(timer_state.clone())
         .invoke_handler(tauri::generate_handler![
             get_timer_state,
+            get_settings,
             user_action,
             hide_popup,
+            show_popup,
             open_settings,
             set_timer_config,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             register_settings_close_handler(app.handle());
 
+            let show_time_item =
+                MenuItem::with_id(app, "show_time", "显示时间", true, None::<&str>)?;
             let settings_item =
                 MenuItem::with_id(app, "settings", "打开设置", true, None::<&str>)?;
             let quit_item =
@@ -381,6 +438,7 @@ pub fn run() {
                 )?;
                 MenuBuilder::new(app)
                     .items(&[
+                        &show_time_item,
                         &settings_item,
                         &mode_submenu,
                         &debug_sitting,
@@ -390,7 +448,7 @@ pub fn run() {
                     .build()?
             } else {
                 MenuBuilder::new(app)
-                    .items(&[&settings_item, &mode_submenu, &quit_item])
+                    .items(&[&show_time_item, &settings_item, &mode_submenu, &quit_item])
                     .build()?
             };
 
@@ -411,9 +469,7 @@ pub fn run() {
                             if popup.is_visible().unwrap_or(false) {
                                 let _ = popup.hide();
                             } else {
-                                position_popup_bottom_right(app);
-                                let _ = popup.show();
-                                let _ = popup.set_focus();
+                                show_popup(app.clone());
                             }
                         }
                     }
@@ -422,6 +478,7 @@ pub fn run() {
                     let mode_normal_item = mode_normal_item.clone();
                     let mode_paused_item = mode_paused_item.clone();
                     move |app, event| match event.id.as_ref() {
+                        "show_time" => show_popup(app.clone()),
                         "settings" => open_settings(app.clone()),
                         "mode_running" => {
                             let state = app.state::<SharedTimer>();
@@ -462,7 +519,11 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            show_popup_temporarily(app.handle().clone(), 4);
+            if initial_config.silent_start {
+                show_popup_temporarily(app.handle().clone(), 4);
+            } else {
+                open_settings(app.handle().clone());
+            }
 
             let app_handle = app.handle().clone();
             start_timer_loop(app_handle, timer_state);

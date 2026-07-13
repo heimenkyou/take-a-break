@@ -1,155 +1,219 @@
 <template>
 	<div class="settings-root">
-		<div class="settings-header">
-			<h1 class="settings-title">设置</h1>
-			<p class="settings-sub">歇会儿 · 定时提醒</p>
-		</div>
+		<aside class="sidebar">
+			<div class="sidebar-brand">歇会儿</div>
 
-		<div class="settings-body">
-			<!-- 久坐提醒 -->
-			<section class="section">
-				<div class="section-head">
-					<span class="section-icon">🪑</span>
-					<div>
-						<div class="section-title">久坐提醒</div>
-						<div class="section-desc">连续专注超过设定时间后弹窗提醒</div>
-					</div>
-				</div>
-				<div class="field-group">
-					<label class="switch-field">
-						<div>
-							<div class="field-label">启用休息提醒</div>
-							<div class="field-desc">关闭后不再弹出久坐休息窗口</div>
-						</div>
-						<input v-model="form.restEnabled" type="checkbox" class="switch-input" />
-					</label>
-					<label class="field">
-						<span class="field-label">提醒间隔</span>
-						<div class="slider-wrap">
-							<input
-								v-model.number="form.sittingIntervalMins"
-								type="range"
-								min="15"
-								max="120"
-								step="5"
-								class="slider"
-							/>
-							<span class="slider-value">{{ form.sittingIntervalMins }} 分钟</span>
-						</div>
-					</label>
-					<label class="field">
-						<span class="field-label">延长等待</span>
-						<div class="slider-wrap">
-							<input
-								v-model.number="form.extendDurationMins"
-								type="range"
-								min="1"
-								max="30"
-								step="1"
-								class="slider"
-							/>
-							<span class="slider-value">{{ form.extendDurationMins }} 分钟</span>
-						</div>
-					</label>
-				</div>
-			</section>
-
-			<!-- 休息设置 -->
-			<section class="section">
-				<div class="section-head">
-					<span class="section-icon">🌿</span>
-					<div>
-						<div class="section-title">休息设置</div>
-						<div class="section-desc">开始休息后的倒计时时长</div>
-					</div>
-				</div>
-				<div class="field-group">
-					<label class="field">
-						<span class="field-label">休息时长</span>
-						<div class="slider-wrap">
-							<input
-								v-model.number="form.restDurationMins"
-								type="range"
-								min="1"
-								max="30"
-								step="1"
-								class="slider"
-							/>
-							<span class="slider-value">{{ form.restDurationMins }} 分钟</span>
-						</div>
-					</label>
-					<label class="field">
-						<span class="field-label">自动开始（秒）</span>
-						<div class="slider-wrap">
-							<input
-								v-model.number="form.autoRestSecs"
-								type="range"
-								min="5"
-								max="60"
-								step="5"
-								class="slider"
-							/>
-							<span class="slider-value">{{ form.autoRestSecs }} 秒</span>
-						</div>
-					</label>
-				</div>
-			</section>
-
-			<!-- 喝水提醒 -->
-			<section class="section">
-				<div class="section-head">
-					<span class="section-icon">💧</span>
-					<div>
-						<div class="section-title">喝水提醒</div>
-						<div class="section-desc">系统通知弱提醒，不打断工作</div>
-					</div>
-				</div>
-				<div class="field-group">
-					<label class="switch-field">
-						<div>
-							<div class="field-label">启用喝水提醒</div>
-							<div class="field-desc">关闭后不再弹出喝水提醒窗口</div>
-						</div>
-						<input
-							v-model="form.waterEnabled"
-							type="checkbox"
-							class="switch-input"
-						/>
-					</label>
-					<label class="field">
-						<span class="field-label">提醒间隔</span>
-						<div class="slider-wrap">
-							<input
-								v-model.number="form.waterIntervalMins"
-								type="range"
-								min="30"
-								max="180"
-								step="5"
-								class="slider"
-							/>
-							<span class="slider-value">{{ form.waterIntervalMins }} 分钟</span>
-						</div>
-					</label>
-				</div>
-			</section>
-		</div>
-
-		<!-- 底部按钮 -->
-		<div class="settings-footer">
-			<button class="btn-reset" @click="resetDefaults">恢复默认</button>
-			<button class="btn-save" :class="{ saved: justSaved }" @click="save">
-				{{ justSaved ? "✓ 已保存" : "保存" }}
+			<button
+				v-for="item in tabs"
+				:key="item.key"
+				:type="button"
+				:class="['sidebar-tab', { 'sidebar-tab--active': activeTab === item.key }]"
+				@click="activeTab = item.key"
+			>
+				<span class="sidebar-tab__icon">{{ item.icon }}</span>
+				<span class="sidebar-tab__label">{{ item.label }}</span>
 			</button>
-		</div>
+		</aside>
+
+		<section class="main-panel">
+			<header class="panel-header">
+				<h1 class="panel-title">{{ currentTab.label }}</h1>
+				<el-tooltip
+					content="双击程序后常驻托盘。左键托盘查看时间，右键托盘打开菜单。"
+					placement="left"
+				>
+					<button class="help-button" type="button">?</button>
+				</el-tooltip>
+			</header>
+
+			<div class="panel-body">
+				<template v-if="activeTab === 'basic'">
+					<div class="switch-row">
+						<span class="row-label">开机自动启动</span>
+						<el-switch v-model="form.autostartEnabled" :disabled="!autostartSupported" />
+					</div>
+
+					<div class="switch-row">
+						<span class="row-label">静默启动</span>
+						<el-switch v-model="form.silentStart" />
+					</div>
+
+					<div class="path-row">
+						<span class="path-label">配置文件</span>
+						<el-input :model-value="configPath" readonly class="path-input">
+							<template #append>
+								<button class="path-button" type="button" @click="openConfigFolder">
+									📂
+								</button>
+							</template>
+						</el-input>
+					</div>
+				</template>
+
+				<template v-else-if="activeTab === 'rest'">
+					<div class="switch-row">
+						<span class="row-label">启用久坐提醒</span>
+						<el-switch v-model="form.restEnabled" />
+					</div>
+
+					<div class="slider-list">
+						<div class="slider-row">
+							<span class="slider-label">提醒间隔</span>
+							<div class="slider-control">
+								<el-slider
+									v-model="form.sittingIntervalMins"
+									:min="15"
+									:max="120"
+									:step="5"
+									size="small"
+								/>
+							</div>
+							<div class="number-box">
+								<el-input-number
+									v-model="form.sittingIntervalMins"
+									:min="15"
+									:max="120"
+									:step="5"
+									size="small"
+									controls-position="right"
+								/>
+								<span class="number-unit">分钟</span>
+							</div>
+						</div>
+
+						<div class="slider-row">
+							<span class="slider-label">延长等待</span>
+							<div class="slider-control">
+								<el-slider
+									v-model="form.extendDurationMins"
+									:min="1"
+									:max="30"
+									:step="1"
+									size="small"
+								/>
+							</div>
+							<div class="number-box">
+								<el-input-number
+									v-model="form.extendDurationMins"
+									:min="1"
+									:max="30"
+									:step="1"
+									size="small"
+									controls-position="right"
+								/>
+								<span class="number-unit">分钟</span>
+							</div>
+						</div>
+
+						<div class="slider-row">
+							<span class="slider-label">休息时长</span>
+							<div class="slider-control">
+								<el-slider
+									v-model="form.restDurationMins"
+									:min="1"
+									:max="30"
+									:step="1"
+									size="small"
+								/>
+							</div>
+							<div class="number-box">
+								<el-input-number
+									v-model="form.restDurationMins"
+									:min="1"
+									:max="30"
+									:step="1"
+									size="small"
+									controls-position="right"
+								/>
+								<span class="number-unit">分钟</span>
+							</div>
+						</div>
+
+						<div class="slider-row">
+							<span class="slider-label">自动开始</span>
+							<div class="slider-control">
+								<el-slider
+									v-model="form.autoRestSecs"
+									:min="5"
+									:max="60"
+									:step="5"
+									size="small"
+								/>
+							</div>
+							<div class="number-box">
+								<el-input-number
+									v-model="form.autoRestSecs"
+									:min="5"
+									:max="60"
+									:step="5"
+									size="small"
+									controls-position="right"
+								/>
+								<span class="number-unit">秒</span>
+							</div>
+						</div>
+					</div>
+				</template>
+
+				<template v-else>
+					<div class="switch-row">
+						<span class="row-label">启用喝水提醒</span>
+						<el-switch v-model="form.waterEnabled" />
+					</div>
+
+					<div class="slider-list">
+						<div class="slider-row">
+							<span class="slider-label">提醒间隔</span>
+							<div class="slider-control">
+								<el-slider
+									v-model="form.waterIntervalMins"
+									:min="30"
+									:max="180"
+									:step="5"
+									size="small"
+								/>
+							</div>
+							<div class="number-box">
+								<el-input-number
+									v-model="form.waterIntervalMins"
+									:min="30"
+									:max="180"
+									:step="5"
+									size="small"
+									controls-position="right"
+								/>
+								<span class="number-unit">分钟</span>
+							</div>
+						</div>
+					</div>
+				</template>
+			</div>
+
+			<footer class="panel-footer">
+				<button class="secondary-button" type="button" @click="resetDefaults">恢复默认</button>
+				<button class="primary-button" :class="{ 'primary-button--saved': justSaved }" type="button" @click="save">
+					{{ justSaved ? "已保存" : "保存" }}
+				</button>
+			</footer>
+		</section>
 	</div>
 </template>
 
 <script setup>
 import { invoke } from "@tauri-apps/api/core";
-import { onMounted, reactive, ref } from "vue";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { computed, onMounted, reactive, ref } from "vue";
+
+const tabs = [
+	{ key: "basic", icon: "⚙️", label: "基础设置" },
+	{ key: "rest", icon: "🪑", label: "休息提醒" },
+	{ key: "water", icon: "💧", label: "喝水提醒" },
+];
 
 /** 默认配置 */
 const DEFAULTS = {
+	silentStart: false,
+	autostartEnabled: false,
 	restEnabled: true,
 	waterEnabled: true,
 	sittingIntervalMins: 50,
@@ -159,27 +223,45 @@ const DEFAULTS = {
 	autoRestSecs: 10,
 };
 
+const activeTab = ref("basic");
 const form = reactive({ ...DEFAULTS });
 const justSaved = ref(false);
+const configPath = ref("");
+const autostartSupported = ref(false);
 
-/** 从 localStorage 加载持久化配置 */
-function loadFromStorage() {
-	try {
-		const raw = localStorage.getItem("tab-settings");
-		if (raw) {
-			const saved = JSON.parse(raw);
-			Object.assign(form, saved);
-		}
-	} catch {
-		// 解析失败则使用默认值
-	}
+const currentTab = computed(
+	() => tabs.find((item) => item.key === activeTab.value) ?? tabs[0],
+);
+
+/** 从后端配置文件加载设置 */
+async function loadSettings() {
+	const payload = await invoke("get_settings");
+	configPath.value = payload.configPath;
+	autostartSupported.value = payload.autostartSupported;
+
+	Object.assign(form, {
+		silentStart: payload.config.silentStart,
+		autostartEnabled: payload.config.autostartEnabled,
+		restEnabled: payload.config.restEnabled,
+		waterEnabled: payload.config.waterEnabled,
+		sittingIntervalMins: payload.config.sittingIntervalSecs / 60,
+		waterIntervalMins: payload.config.waterIntervalSecs / 60,
+		restDurationMins: payload.config.restDurationSecs / 60,
+		extendDurationMins: payload.config.extendDurationSecs / 60,
+		autoRestSecs: payload.config.autoRestSecs,
+	});
 }
 
-/** 持久化到 localStorage 并同步到 Rust 计时器 */
-async function save() {
-	localStorage.setItem("tab-settings", JSON.stringify({ ...form }));
+/** 打开配置文件所在位置 */
+async function openConfigFolder() {
+	if (!configPath.value) return;
+	await revealItemInDir(configPath.value);
+}
 
+/** 持久化到本地 data/config.json 并同步到 Rust */
+async function save() {
 	await invoke("set_timer_config", {
+		silentStart: form.silentStart,
 		autoRestSecs: form.autoRestSecs,
 		sittingIntervalSecs: form.sittingIntervalMins * 60,
 		waterIntervalSecs: form.waterIntervalMins * 60,
@@ -187,6 +269,7 @@ async function save() {
 		extendDurationSecs: form.extendDurationMins * 60,
 		restEnabled: form.restEnabled,
 		waterEnabled: form.waterEnabled,
+		autostartEnabled: form.autostartEnabled,
 	});
 
 	justSaved.value = true;
@@ -200,7 +283,7 @@ function resetDefaults() {
 }
 
 onMounted(() => {
-	loadFromStorage();
+	loadSettings();
 });
 </script>
 
@@ -209,222 +292,239 @@ onMounted(() => {
 	width: 100%;
 	height: 100%;
 	display: flex;
-	flex-direction: column;
-	background: #f8fafc;
-	font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+	background: #f3f5f8;
+	color: #111827;
+	font-family: "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei",
+		sans-serif;
 	overflow: hidden;
 }
 
-/* ── 头部 ── */
-.settings-header {
-	padding: 20px 24px 0;
-}
-
-.settings-title {
-	font-size: 20px;
-	font-weight: 700;
-	color: #111827;
-	margin: 0 0 2px;
-	letter-spacing: -0.02em;
-}
-
-.settings-sub {
-	font-size: 12px;
-	color: #9ca3af;
-	margin: 0;
-}
-
-/* ── 主体 ── */
-.settings-body {
-	flex: 1;
-	overflow-y: auto;
-	padding: 16px 24px;
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
-}
-
-/* ── 分组卡片 ── */
-.section {
-	background: #ffffff;
-	border: 1px solid #e9eaf0;
-	border-radius: 14px;
-	padding: 16px;
-}
-
-.section-head {
-	display: flex;
-	align-items: flex-start;
-	gap: 10px;
-	margin-bottom: 14px;
-}
-
-.section-icon {
-	font-size: 20px;
-	line-height: 1;
+.sidebar {
+	width: 180px;
 	flex-shrink: 0;
-	margin-top: 1px;
-}
-
-.section-title {
-	font-size: 14px;
-	font-weight: 600;
-	color: #1f2937;
-	margin-bottom: 2px;
-}
-
-.section-desc {
-	font-size: 12px;
-	color: #6b7280;
-	line-height: 1.4;
-}
-
-/* ── 字段组 ── */
-.field-group {
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
-}
-
-.field {
+	padding: 14px 10px;
+	background: #ffffff;
+	border-right: 1px solid #e5e7eb;
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
-	cursor: default;
 }
 
-.switch-field {
+.sidebar-brand {
+	height: 34px;
+	display: flex;
+	align-items: center;
+	padding: 0 10px;
+	margin-bottom: 8px;
+	font-size: 18px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+}
+
+.sidebar-tab {
+	height: 36px;
+	border: none;
+	border-radius: 10px;
+	background: transparent;
+	padding: 0 10px;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	cursor: pointer;
+	font-size: 13px;
+	font-weight: 600;
+	color: #4b5563;
+	text-align: left;
+}
+
+.sidebar-tab:hover {
+	background: #f3f4f6;
+}
+
+.sidebar-tab--active {
+	background: #e8f0fe;
+	color: #1d4ed8;
+}
+
+.sidebar-tab__icon {
+	width: 18px;
+	text-align: center;
+	flex-shrink: 0;
+}
+
+.main-panel {
+	flex: 1;
+	padding: 14px 14px 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	overflow: hidden;
+}
+
+.panel-header {
+	height: 48px;
+	flex-shrink: 0;
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 12px;
-	padding: 10px 12px;
-	border-radius: 12px;
-	background: #f8fafc;
-	border: 1px solid #eef2f7;
+	padding: 0 4px 0 8px;
 }
 
-.field-label {
-	font-size: 12px;
-	font-weight: 500;
+.panel-title {
+	margin: 0;
+	font-size: 18px;
+	font-weight: 700;
+	letter-spacing: -0.02em;
+}
+
+.help-button {
+	width: 28px;
+	height: 28px;
+	border: none;
+	border-radius: 999px;
+	background: #ffffff;
+	color: #6b7280;
+	font-size: 13px;
+	font-weight: 700;
+	cursor: pointer;
+	box-shadow: inset 0 0 0 1px #e5e7eb;
+}
+
+.panel-body {
+	flex: 1;
+	background: #ffffff;
+	border: 1px solid #e5e7eb;
+	border-radius: 14px;
+	padding: 12px 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	overflow: hidden;
+}
+
+.switch-row,
+.path-row,
+.slider-row {
+	min-height: 38px;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.row-label,
+.path-label,
+.slider-label {
+	width: 96px;
+	flex-shrink: 0;
+	font-size: 13px;
+	font-weight: 600;
 	color: #374151;
 }
 
-.field-desc {
-	font-size: 12px;
-	color: #9ca3af;
-	margin-top: 2px;
+.path-row {
+	margin-top: auto;
 }
 
-.switch-input {
-	width: 18px;
-	height: 18px;
-	accent-color: #7c3aed;
+.path-input {
+	flex: 1;
+	min-width: 0;
+}
+
+.path-button {
+	width: 32px;
+	height: 30px;
+	border: none;
+	background: transparent;
+	cursor: pointer;
+	font-size: 16px;
+	line-height: 1;
+}
+
+.slider-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.slider-control {
+	flex: 1;
+	min-width: 0;
+	padding-right: 4px;
+}
+
+.number-box {
+	width: 124px;
 	flex-shrink: 0;
-}
-
-/* ── 滑块 ── */
-.slider-wrap {
 	display: flex;
 	align-items: center;
-	gap: 10px;
+	justify-content: flex-end;
+	gap: 6px;
+	white-space: nowrap;
 }
 
-.slider {
-	flex: 1;
-	height: 4px;
-	border-radius: 2px;
-	appearance: none;
-	background: linear-gradient(
-		to right,
-		#7c3aed 0%,
-		#7c3aed calc(var(--ratio, 0) * 100%),
-		#e5e7eb calc(var(--ratio, 0) * 100%),
-		#e5e7eb 100%
-	);
-	outline: none;
-	cursor: pointer;
-}
-
-.slider::-webkit-slider-thumb {
-	appearance: none;
-	width: 16px;
-	height: 16px;
-	border-radius: 50%;
-	background: #7c3aed;
-	box-shadow: 0 1px 4px rgba(124, 58, 237, 0.4);
-	cursor: pointer;
-	transition: transform 0.15s;
-}
-
-.slider::-webkit-slider-thumb:hover {
-	transform: scale(1.15);
-}
-
-.slider-value {
+.number-unit {
 	font-size: 12px;
-	font-weight: 600;
-	color: #7c3aed;
-	min-width: 58px;
-	text-align: right;
+	color: #6b7280;
 }
 
-/* ── 底部按钮 ── */
-.settings-footer {
+.panel-footer {
+	height: 36px;
+	flex-shrink: 0;
 	display: flex;
 	justify-content: flex-end;
-	align-items: center;
-	gap: 10px;
-	padding: 14px 24px;
-	border-top: 1px solid #e9eaf0;
-	background: #ffffff;
-	flex-shrink: 0;
+	gap: 8px;
 }
 
-.btn-reset {
-	padding: 8px 16px;
-	background: none;
-	border: 1px solid #e5e7eb;
-	border-radius: 8px;
-	font-size: 13px;
-	font-weight: 500;
-	color: #6b7280;
-	cursor: pointer;
-	font-family: inherit;
-	transition:
-		background 0.15s,
-		color 0.15s;
-}
-
-.btn-reset:hover {
-	background: #f3f4f6;
-	color: #374151;
-}
-
-.btn-save {
-	padding: 8px 24px;
-	background: linear-gradient(135deg, #7c3aed, #a78bfa);
-	color: #fff;
-	border: none;
-	border-radius: 8px;
+.secondary-button,
+.primary-button {
+	height: 36px;
+	padding: 0 16px;
+	border-radius: 10px;
 	font-size: 13px;
 	font-weight: 600;
 	cursor: pointer;
-	font-family: inherit;
-	transition:
-		transform 0.15s,
-		box-shadow 0.15s,
-		background 0.2s;
-	box-shadow: 0 3px 10px rgba(124, 58, 237, 0.3);
 }
 
-.btn-save:hover {
-	transform: translateY(-1px);
-	box-shadow: 0 5px 16px rgba(124, 58, 237, 0.4);
+.secondary-button {
+	border: 1px solid #d1d5db;
+	background: #ffffff;
+	color: #4b5563;
 }
 
-.btn-save.saved {
-	background: linear-gradient(135deg, #16a34a, #4ade80);
-	box-shadow: 0 3px 10px rgba(22, 163, 74, 0.3);
+.primary-button {
+	border: none;
+	background: #2563eb;
+	color: #ffffff;
+	min-width: 88px;
+}
+
+.primary-button--saved {
+	background: #16a34a;
+}
+
+:deep(.el-switch) {
+	--el-switch-on-color: #2563eb;
+	--el-switch-off-color: #cbd5e1;
+}
+
+:deep(.el-input__wrapper) {
+	box-shadow: inset 0 0 0 1px #d1d5db;
+}
+
+:deep(.el-input-group__append) {
+	padding: 0;
+	background: #f9fafb;
+}
+
+:deep(.el-slider) {
+	width: 100%;
+}
+
+:deep(.el-slider__runway) {
+	margin: 0;
+}
+
+:deep(.el-input-number) {
+	width: 82px;
 }
 </style>

@@ -1,3 +1,4 @@
+use crate::config::AppConfig;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -101,6 +102,23 @@ impl AppTimer {
             rest_enabled: true,
             water_enabled: true,
         }
+    }
+
+    /// 按持久化配置覆盖计时器参数
+    pub fn apply_config(&mut self, config: &AppConfig) {
+        self.auto_rest_secs = config.auto_rest_secs;
+        self.sitting_interval = config.sitting_interval_secs;
+        self.water_interval = config.water_interval_secs;
+        self.rest_duration = config.rest_duration_secs;
+        self.extend_duration = config.extend_duration_secs;
+        self.rest_enabled = config.rest_enabled;
+        self.water_enabled = config.water_enabled;
+        self.sitting_remaining = self.sitting_interval as i64;
+        self.water_remaining = self.water_interval as i64;
+        self.rest_remaining = 0;
+        self.water_alert_remaining = 0;
+        self.phase = Phase::Running;
+        self.paused_phase = None;
     }
 
     pub fn snapshot(&self) -> TimerSnapshot {
