@@ -5,7 +5,7 @@ use std::time::Duration;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, State,
+    AppHandle, Emitter, Manager, State, WindowEvent,
 };
 use tauri_plugin_notification::NotificationExt;
 use timer::{AppTimer, Phase, SharedTimer};
@@ -70,6 +70,19 @@ fn open_settings(app: AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
         let _ = w.show();
         let _ = w.set_focus();
+    }
+}
+
+/// 设置窗口关闭时改为隐藏，避免托盘再次打开时找不到已销毁窗口
+fn register_settings_close_handler(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("settings") {
+        let settings_window = window.clone();
+        window.on_window_event(move |event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = settings_window.hide();
+            }
+        });
     }
 }
 
@@ -238,6 +251,8 @@ pub fn run() {
             set_timer_config,
         ])
         .setup(|app| {
+            register_settings_close_handler(app.handle());
+
             let pause_item =
                 MenuItem::with_id(app, "pause", "暂停提醒", true, None::<&str>)?;
             let settings_item =
@@ -300,12 +315,7 @@ pub fn run() {
                     }
                 })
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "settings" => {
-                        if let Some(w) = app.get_webview_window("settings") {
-                            let _ = w.show();
-                            let _ = w.set_focus();
-                        }
-                    }
+                    "settings" => open_settings(app.clone()),
                     "pause" => {
                         let state = app.state::<SharedTimer>();
                         let mut t = state.lock().unwrap();
