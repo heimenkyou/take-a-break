@@ -267,6 +267,58 @@ const form = reactive({ ...DEFAULTS });
 const configPath = ref("");
 const autostartSupported = ref(false);
 const isHydrating = ref(true);
+let lastSavedForm = createFormSnapshot();
+let saveQueue = Promise.resolve();
+
+/** 生成当前表单快照，用于比较哪些字段真的发生了变化 */
+function createFormSnapshot() {
+	return {
+		silentStart: form.silentStart,
+		autostartEnabled: form.autostartEnabled,
+		restEnabled: form.restEnabled,
+		waterEnabled: form.waterEnabled,
+		sittingIntervalMins: form.sittingIntervalMins,
+		waterIntervalMins: form.waterIntervalMins,
+		restDurationMins: form.restDurationMins,
+		extendDurationMins: form.extendDurationMins,
+		autoRestSecs: form.autoRestSecs,
+	};
+}
+
+/** 只提交有变化的配置，避免无关设置触发额外的注册表写入 */
+function buildChangedPayload(nextSnapshot) {
+	const payload = {};
+
+	if (nextSnapshot.silentStart !== lastSavedForm.silentStart) {
+		payload.silentStart = nextSnapshot.silentStart;
+	}
+	if (nextSnapshot.autostartEnabled !== lastSavedForm.autostartEnabled) {
+		payload.autostartEnabled = nextSnapshot.autostartEnabled;
+	}
+	if (nextSnapshot.restEnabled !== lastSavedForm.restEnabled) {
+		payload.restEnabled = nextSnapshot.restEnabled;
+	}
+	if (nextSnapshot.waterEnabled !== lastSavedForm.waterEnabled) {
+		payload.waterEnabled = nextSnapshot.waterEnabled;
+	}
+	if (nextSnapshot.sittingIntervalMins !== lastSavedForm.sittingIntervalMins) {
+		payload.sittingIntervalSecs = nextSnapshot.sittingIntervalMins * 60;
+	}
+	if (nextSnapshot.waterIntervalMins !== lastSavedForm.waterIntervalMins) {
+		payload.waterIntervalSecs = nextSnapshot.waterIntervalMins * 60;
+	}
+	if (nextSnapshot.restDurationMins !== lastSavedForm.restDurationMins) {
+		payload.restDurationSecs = nextSnapshot.restDurationMins * 60;
+	}
+	if (nextSnapshot.extendDurationMins !== lastSavedForm.extendDurationMins) {
+		payload.extendDurationSecs = nextSnapshot.extendDurationMins * 60;
+	}
+	if (nextSnapshot.autoRestSecs !== lastSavedForm.autoRestSecs) {
+		payload.autoRestSecs = nextSnapshot.autoRestSecs;
+	}
+
+	return payload;
+}
 
 /** 从后端配置文件加载设置 */
 async function loadSettings() {
@@ -287,6 +339,7 @@ async function loadSettings() {
 	});
 
 	await nextTick();
+	lastSavedForm = createFormSnapshot();
 	isHydrating.value = false;
 }
 
@@ -297,18 +350,8 @@ async function openConfigFolder() {
 }
 
 /** 持久化到本地 data/config.json 并同步到 Rust */
-async function save() {
-	await invoke("set_timer_config", {
-		silentStart: form.silentStart,
-		autoRestSecs: form.autoRestSecs,
-		sittingIntervalSecs: form.sittingIntervalMins * 60,
-		waterIntervalSecs: form.waterIntervalMins * 60,
-		restDurationSecs: form.restDurationMins * 60,
-		extendDurationSecs: form.extendDurationMins * 60,
-		restEnabled: form.restEnabled,
-		waterEnabled: form.waterEnabled,
-		autostartEnabled: form.autostartEnabled,
-	});
+async function save(payload) {
+	await invoke("set_timer_config", payload);
 }
 
 function resetDefaults() {
@@ -319,7 +362,18 @@ watch(
 	form,
 	async () => {
 		if (isHydrating.value) return;
-		await save();
+		const nextSnapshot = createFormSnapshot();
+		const payload = buildChangedPayload(nextSnapshot);
+		if (Object.keys(payload).length === 0) return;
+
+		saveQueue = saveQueue
+			.catch(() => {})
+			.then(async () => {
+				await save(payload);
+				lastSavedForm = nextSnapshot;
+			});
+
+		await saveQueue;
 	},
 	{ deep: true },
 );

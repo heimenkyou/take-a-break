@@ -27,15 +27,19 @@ fn get_timer_state(state: State<'_, SharedTimer>) -> timer::TimerSnapshot {
 
 /// 获取设置页所需的持久化配置与说明信息
 #[tauri::command]
-fn get_settings() -> Result<SettingsPayload, String> {
-    let mut config = load_config();
-    config.autostart_enabled = is_autostart_enabled();
+async fn get_settings() -> Result<SettingsPayload, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut config = load_config();
+        config.autostart_enabled = is_autostart_enabled();
 
-    Ok(SettingsPayload {
-        config,
-        config_path: config_path().display().to_string(),
-        autostart_supported: autostart_supported(),
+        Ok(SettingsPayload {
+            config,
+            config_path: config_path().display().to_string(),
+            autostart_supported: autostart_supported(),
+        })
     })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 /// 用户操作：start_rest / skip / extend / pause_toggle
@@ -151,7 +155,7 @@ fn register_settings_close_handler(app: &AppHandle) {
 
 /// 更新计时器配置（来自设置页面，单位：秒）
 #[tauri::command]
-fn set_timer_config(
+async fn set_timer_config(
     silent_start: Option<bool>,
     auto_rest_secs: Option<u64>,
     sitting_interval_secs: Option<u64>,
@@ -164,69 +168,85 @@ fn set_timer_config(
     app: AppHandle,
     state: State<'_, SharedTimer>,
 ) -> Result<(), String> {
-    let mut t = state.lock().unwrap();
-    if let Some(v) = auto_rest_secs {
-        t.auto_rest_secs = v;
-    }
-    if let Some(v) = sitting_interval_secs {
-        t.sitting_interval = v;
-        // 若剩余超过新上限则截断，避免下次提醒遥遥无期
-        if t.sitting_remaining > v as i64 {
-            t.sitting_remaining = v as i64;
+    let (snapshot, should_hide_alert, next_config) = {
+        let mut t = state.lock().unwrap();
+        if let Some(v) = auto_rest_secs {
+            t.auto_rest_secs = v;
         }
-    }
-    if let Some(v) = water_interval_secs {
-        t.water_interval = v;
-        if t.water_remaining > v as i64 {
-            t.water_remaining = v as i64;
+        if let Some(v) = sitting_interval_secs {
+            t.sitting_interval = v;
+            // 若剩余超过新上限则截断，避免下次提醒遥遥无期
+            if t.sitting_remaining > v as i64 {
+                t.sitting_remaining = v as i64;
+            }
         }
-    }
-    if let Some(v) = rest_duration_secs {
-        t.rest_duration = v;
-    }
-    if let Some(v) = extend_duration_secs {
-        t.extend_duration = v;
-    }
-    if let Some(v) = rest_enabled {
-        t.rest_enabled = v;
-        if !v && matches!(t.active_alert(), Some(AlertKind::Sitting | AlertKind::Resting)) {
-            t.phase = Phase::Running;
-            t.rest_remaining = 0;
-            t.sitting_remaining = t.sitting_interval as i64;
+        if let Some(v) = water_interval_secs {
+            t.water_interval = v;
+            if t.water_remaining > v as i64 {
+                t.water_remaining = v as i64;
+            }
         }
-    }
-    if let Some(v) = water_enabled {
-        t.water_enabled = v;
-        if !v {
-            t.dismiss_water_alert();
-            t.water_remaining = t.water_interval as i64;
+        if let Some(v) = rest_duration_secs {
+            t.rest_duration = v;
         }
-    }
+        if let Some(v) = extend_duration_secs {
+            t.extend_duration = v;
+        }
+        if let Some(v) = rest_enabled {
+            t.rest_enabled = v;
+            if !v && matches!(t.active_alert(), Some(AlertKind::Sitting | AlertKind::Resting)) {
+                t.phase = Phase::Running;
+                t.rest_remaining = 0;
+                t.sitting_remaining = t.sitting_interval as i64;
+            }
+        }
+        if let Some(v) = water_enabled {
+            t.water_enabled = v;
+            if !v {
+                t.dismiss_water_alert();
+                t.water_remaining = t.water_interval as i64;
+            }
+        }
 
-    let mut config = AppConfig {
-        silent_start: silent_start.unwrap_or_else(|| load_config().silent_start),
-        auto_rest_secs: t.auto_rest_secs,
-        sitting_interval_secs: t.sitting_interval,
-        water_interval_secs: t.water_interval,
-        rest_duration_secs: t.rest_duration,
-        extend_duration_secs: t.extend_duration,
-        rest_enabled: t.rest_enabled,
-        water_enabled: t.water_enabled,
-        autostart_enabled: autostart_enabled.unwrap_or_else(is_autostart_enabled),
+        let snapshot = t.snapshot();
+        let should_hide_alert = snapshot.active_alert.is_none();
+        let next_config = AppConfig {
+            silent_start: silent_start.unwrap_or(false),
+            auto_rest_secs: t.auto_rest_secs,
+            sitting_interval_secs: t.sitting_interval,
+            water_interval_secs: t.water_interval,
+            rest_duration_secs: t.rest_duration,
+            extend_duration_secs: t.extend_duration,
+            rest_enabled: t.rest_enabled,
+            water_enabled: t.water_enabled,
+            autostart_enabled: autostart_enabled.unwrap_or(false),
+        };
+
+        (snapshot, should_hide_alert, next_config)
     };
 
-    if let Some(v) = autostart_enabled {
-        set_autostart_enabled(v)?;
-        config.autostart_enabled = v;
-    } else {
-        config.autostart_enabled = is_autostart_enabled();
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut config = load_config();
+        if let Some(v) = silent_start {
+            config.silent_start = v;
+        }
+        config.auto_rest_secs = next_config.auto_rest_secs;
+        config.sitting_interval_secs = next_config.sitting_interval_secs;
+        config.water_interval_secs = next_config.water_interval_secs;
+        config.rest_duration_secs = next_config.rest_duration_secs;
+        config.extend_duration_secs = next_config.extend_duration_secs;
+        config.rest_enabled = next_config.rest_enabled;
+        config.water_enabled = next_config.water_enabled;
 
-    save_config(&config)?;
+        if let Some(v) = autostart_enabled {
+            set_autostart_enabled(v)?;
+            config.autostart_enabled = v;
+        }
 
-    let snapshot = t.snapshot();
-    let should_hide_alert = snapshot.active_alert.is_none();
-    drop(t);
+        save_config(&config)
+    })
+    .await
+    .map_err(|err| err.to_string())??;
 
     if should_hide_alert {
         hide_alert(&app);
