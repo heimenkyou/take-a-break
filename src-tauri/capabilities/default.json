@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "default",
-	"description": "Capability for the main window",
-	"windows": ["main"],
-	"permissions": ["core:default", "opener:default"]
+	"description": "歇会儿应用权限配置",
+	"windows": ["popup", "alert"],
+	"permissions": ["core:default", "opener:default", "notification:default"]
 }

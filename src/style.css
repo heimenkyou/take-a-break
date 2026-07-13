@@ -1,0 +1,220 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+/* ───────────────────────────────────────
+   设计变量
+─────────────────────────────────────── */
+:root {
+	--color-bg: #0d0d12;
+	--color-surface: rgba(22, 22, 32, 0.92);
+	--color-border: rgba(255, 255, 255, 0.08);
+	--color-border-strong: rgba(255, 255, 255, 0.14);
+
+	--color-text-primary: #f0f0f8;
+	--color-text-secondary: rgba(200, 200, 220, 0.6);
+	--color-text-muted: rgba(150, 150, 170, 0.45);
+
+	--color-accent: #7c6af7;
+	--color-accent-soft: rgba(124, 106, 247, 0.15);
+	--color-accent-glow: rgba(124, 106, 247, 0.35);
+
+	--color-success: #4ade80;
+	--color-warning: #fb923c;
+	--color-danger: #f87171;
+
+	--radius-sm: 10px;
+	--radius-md: 16px;
+	--radius-lg: 24px;
+	--radius-xl: 32px;
+
+	--blur-glass: blur(24px) saturate(180%);
+	--shadow-float: 0 8px 32px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+	--shadow-glow: 0 0 40px rgba(124, 106, 247, 0.2);
+}
+
+/* ───────────────────────────────────────
+   全局基础
+─────────────────────────────────────── */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+
+html,
+body,
+#app {
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	user-select: none;
+	-webkit-user-select: none;
+	font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+	font-size: 14px;
+	color: var(--color-text-primary);
+	background: transparent;
+	-webkit-font-smoothing: antialiased;
+}
+
+/* ───────────────────────────────────────
+   毛玻璃卡片基础类
+─────────────────────────────────────── */
+.glass-card {
+	background: var(--color-surface);
+	backdrop-filter: var(--blur-glass);
+	-webkit-backdrop-filter: var(--blur-glass);
+	border: 1px solid var(--color-border);
+	box-shadow: var(--shadow-float);
+}
+
+/* ───────────────────────────────────────
+   按钮
+─────────────────────────────────────── */
+.btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	padding: 10px 20px;
+	border: none;
+	border-radius: var(--radius-sm);
+	font-family: inherit;
+	font-size: 14px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all 0.18s ease;
+	outline: none;
+	white-space: nowrap;
+}
+
+.btn-primary {
+	background: linear-gradient(135deg, #7c6af7, #a78bfa);
+	color: #fff;
+	box-shadow: 0 4px 16px rgba(124, 106, 247, 0.4);
+}
+.btn-primary:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 6px 24px rgba(124, 106, 247, 0.55);
+}
+.btn-primary:active {
+	transform: translateY(0);
+}
+
+.btn-ghost {
+	background: rgba(255, 255, 255, 0.05);
+	color: var(--color-text-secondary);
+	border: 1px solid var(--color-border);
+}
+.btn-ghost:hover {
+	background: rgba(255, 255, 255, 0.1);
+	color: var(--color-text-primary);
+	border-color: var(--color-border-strong);
+}
+
+.btn-danger-ghost {
+	background: rgba(248, 113, 113, 0.08);
+	color: var(--color-danger);
+	border: 1px solid rgba(248, 113, 113, 0.2);
+}
+.btn-danger-ghost:hover {
+	background: rgba(248, 113, 113, 0.15);
+}
+
+/* ───────────────────────────────────────
+   大号倒计时数字
+─────────────────────────────────────── */
+.countdown {
+	font-family: "JetBrains Mono", "Fira Code", monospace;
+	font-weight: 500;
+	line-height: 1;
+	letter-spacing: -0.02em;
+	background: linear-gradient(135deg, #f0f0f8 30%, rgba(124, 106, 247, 0.8));
+	-webkit-background-clip: text;
+	-webkit-text-fill-color: transparent;
+	background-clip: text;
+}
+
+/* ───────────────────────────────────────
+   标签/徽章
+─────────────────────────────────────── */
+.badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 3px 10px;
+	border-radius: 100px;
+	font-size: 11px;
+	font-weight: 500;
+	letter-spacing: 0.04em;
+}
+.badge-accent {
+	background: var(--color-accent-soft);
+	color: #a78bfa;
+	border: 1px solid rgba(124, 106, 247, 0.25);
+}
+.badge-success {
+	background: rgba(74, 222, 128, 0.1);
+	color: var(--color-success);
+	border: 1px solid rgba(74, 222, 128, 0.2);
+}
+.badge-warning {
+	background: rgba(251, 146, 60, 0.1);
+	color: var(--color-warning);
+	border: 1px solid rgba(251, 146, 60, 0.2);
+}
+
+/* ───────────────────────────────────────
+   进度环（SVG）
+─────────────────────────────────────── */
+.progress-ring {
+	transform: rotate(-90deg);
+}
+.progress-ring__track {
+	fill: none;
+	stroke: rgba(255, 255, 255, 0.06);
+}
+.progress-ring__fill {
+	fill: none;
+	stroke: url(#ringGradient);
+	stroke-linecap: round;
+	transition: stroke-dashoffset 0.8s ease;
+}
+
+/* ───────────────────────────────────────
+   淡入动画
+─────────────────────────────────────── */
+@keyframes fadeInUp {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+@keyframes pulse-glow {
+	0%,
+	100% {
+		box-shadow: 0 0 20px rgba(124, 106, 247, 0.2);
+	}
+	50% {
+		box-shadow: 0 0 40px rgba(124, 106, 247, 0.5);
+	}
+}
+
+.anim-fade-in-up {
+	animation: fadeInUp 0.3s ease both;
+}
+.anim-fade-in {
+	animation: fadeIn 0.25s ease both;
+}
