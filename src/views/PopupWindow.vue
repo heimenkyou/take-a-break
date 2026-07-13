@@ -49,6 +49,32 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 const appWindow = getCurrentWebviewWindow();
+const PHASE_META = {
+	running: {
+		label: "专注中",
+		badgeClass: "badge-accent",
+		timerLabel: "距离下次休息",
+		timerIcon: "⏱️",
+	},
+	triggered: {
+		label: "该休息了",
+		badgeClass: "badge-warning",
+		timerLabel: "距离下次休息",
+		timerIcon: "⏱️",
+	},
+	resting: {
+		label: "休息中",
+		badgeClass: "badge-success",
+		timerLabel: "休息剩余时间",
+		timerIcon: "🛌",
+	},
+	paused: {
+		label: "已暂停",
+		badgeClass: "badge-muted",
+		timerLabel: "提醒已暂停",
+		timerIcon: "⏱️",
+	},
+};
 
 const state = ref({
 	phase: "running",
@@ -83,54 +109,17 @@ const mainCountdown = computed(() => {
 	return formatTime(s.sittingRemaining);
 });
 
-const phaseLabel = computed(() => {
-	switch (state.value.phase) {
-		case "running":
-			return "专注中";
-		case "triggered":
-			return "该休息了";
-		case "resting":
-			return "休息中";
-		case "paused":
-			return "已暂停";
-		default:
-			return "—";
-	}
-});
+const phaseMeta = computed(
+	() => PHASE_META[state.value.phase] ?? PHASE_META.running,
+);
 
-const phaseBadgeClass = computed(() => {
-	switch (state.value.phase) {
-		case "running":
-			return "badge-accent";
-		case "triggered":
-			return "badge-warning";
-		case "resting":
-			return "badge-success";
-		case "paused":
-			return "badge-muted";
-		default:
-			return "badge-accent";
-	}
-});
+const phaseLabel = computed(() => phaseMeta.value.label);
 
-const timerLabel = computed(() => {
-	switch (state.value.phase) {
-		case "running":
-			return "距离下次休息";
-		case "triggered":
-			return "距离下次休息";
-		case "resting":
-			return "休息剩余时间";
-		case "paused":
-			return "提醒已暂停";
-		default:
-			return "";
-	}
-});
+const phaseBadgeClass = computed(() => phaseMeta.value.badgeClass);
 
-const timerLabelIcon = computed(() => {
-	return state.value.phase === "resting" ? "🛌" : "⏱️";
-});
+const timerLabel = computed(() => phaseMeta.value.timerLabel);
+
+const timerLabelIcon = computed(() => phaseMeta.value.timerIcon);
 
 // ── 操作 ─────────────────────────────────
 

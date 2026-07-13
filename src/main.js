@@ -2,10 +2,6 @@ import { createApp } from "vue";
 import "./element-plus.js";
 import "./style.css";
 
-/**
- * 根据当前窗口 hash 按需加载对应视图。
- * 返回值：Promise<VueComponent>
- */
 async function loadRootComponent() {
 	const hash = window.location.hash;
 
@@ -25,10 +21,7 @@ async function loadRootComponent() {
 		);
 		return SettingsWindow;
 	}
-
-	// 空壳窗口：此项目通过系统托盘运行，无独立 main 窗口
-	const { default: App } = await import("./App.vue");
-	return App;
+	return { template: "<div />" };
 }
 
 /** 启动前端入口，避免顶层 await 影响生产构建 */

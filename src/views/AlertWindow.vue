@@ -461,16 +461,6 @@ onUnmounted(() => {
 	letter-spacing: -0.02em;
 }
 
-/* ── 自动倒计时提示 ── */
-.auto-hint {
-	font-size: 12px;
-	color: #7c3aed;
-	background: #ede9fe;
-	padding: 4px 12px;
-	border-radius: 100px;
-	font-weight: 500;
-}
-
 /* ── 进度环 ── */
 .ring-wrap {
 	position: relative;

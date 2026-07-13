@@ -250,6 +250,21 @@ const tabs = [
 	{ key: "reminder", icon: "⏱️", label: "提醒设置" },
 ];
 
+const DIRECT_FIELD_KEYS = [
+	"silentStart",
+	"autostartEnabled",
+	"restEnabled",
+	"waterEnabled",
+	"autoRestSecs",
+];
+
+const DURATION_FIELD_PAIRS = [
+	["sittingIntervalMins", "sittingIntervalSecs"],
+	["waterIntervalMins", "waterIntervalSecs"],
+	["restDurationMins", "restDurationSecs"],
+	["extendDurationMins", "extendDurationSecs"],
+];
+
 /** 默认配置 */
 const DEFAULTS = {
 	silentStart: false,
@@ -274,15 +289,10 @@ let saveQueue = Promise.resolve();
 /** 生成当前表单快照，用于比较哪些字段真的发生了变化 */
 function createFormSnapshot() {
 	return {
-		silentStart: form.silentStart,
-		autostartEnabled: form.autostartEnabled,
-		restEnabled: form.restEnabled,
-		waterEnabled: form.waterEnabled,
-		sittingIntervalMins: form.sittingIntervalMins,
-		waterIntervalMins: form.waterIntervalMins,
-		restDurationMins: form.restDurationMins,
-		extendDurationMins: form.extendDurationMins,
-		autoRestSecs: form.autoRestSecs,
+		...Object.fromEntries(DIRECT_FIELD_KEYS.map((key) => [key, form[key]])),
+		...Object.fromEntries(
+			DURATION_FIELD_PAIRS.map(([formKey]) => [formKey, form[formKey]]),
+		),
 	};
 }
 
@@ -290,32 +300,16 @@ function createFormSnapshot() {
 function buildChangedPayload(nextSnapshot) {
 	const payload = {};
 
-	if (nextSnapshot.silentStart !== lastSavedForm.silentStart) {
-		payload.silentStart = nextSnapshot.silentStart;
+	for (const key of DIRECT_FIELD_KEYS) {
+		if (nextSnapshot[key] !== lastSavedForm[key]) {
+			payload[key] = nextSnapshot[key];
+		}
 	}
-	if (nextSnapshot.autostartEnabled !== lastSavedForm.autostartEnabled) {
-		payload.autostartEnabled = nextSnapshot.autostartEnabled;
-	}
-	if (nextSnapshot.restEnabled !== lastSavedForm.restEnabled) {
-		payload.restEnabled = nextSnapshot.restEnabled;
-	}
-	if (nextSnapshot.waterEnabled !== lastSavedForm.waterEnabled) {
-		payload.waterEnabled = nextSnapshot.waterEnabled;
-	}
-	if (nextSnapshot.sittingIntervalMins !== lastSavedForm.sittingIntervalMins) {
-		payload.sittingIntervalSecs = nextSnapshot.sittingIntervalMins * 60;
-	}
-	if (nextSnapshot.waterIntervalMins !== lastSavedForm.waterIntervalMins) {
-		payload.waterIntervalSecs = nextSnapshot.waterIntervalMins * 60;
-	}
-	if (nextSnapshot.restDurationMins !== lastSavedForm.restDurationMins) {
-		payload.restDurationSecs = nextSnapshot.restDurationMins * 60;
-	}
-	if (nextSnapshot.extendDurationMins !== lastSavedForm.extendDurationMins) {
-		payload.extendDurationSecs = nextSnapshot.extendDurationMins * 60;
-	}
-	if (nextSnapshot.autoRestSecs !== lastSavedForm.autoRestSecs) {
-		payload.autoRestSecs = nextSnapshot.autoRestSecs;
+
+	for (const [formKey, configKey] of DURATION_FIELD_PAIRS) {
+		if (nextSnapshot[formKey] !== lastSavedForm[formKey]) {
+			payload[configKey] = nextSnapshot[formKey] * 60;
+		}
 	}
 
 	return payload;
@@ -326,18 +320,14 @@ async function loadSettings() {
 	const payload = await invoke("get_settings");
 	configPath.value = payload.configPath;
 	autostartSupported.value = payload.autostartSupported;
+	const nextForm = Object.fromEntries(
+		DIRECT_FIELD_KEYS.map((key) => [key, payload.config[key]]),
+	);
+	for (const [formKey, configKey] of DURATION_FIELD_PAIRS) {
+		nextForm[formKey] = payload.config[configKey] / 60;
+	}
 
-	Object.assign(form, {
-		silentStart: payload.config.silentStart,
-		autostartEnabled: payload.config.autostartEnabled,
-		restEnabled: payload.config.restEnabled,
-		waterEnabled: payload.config.waterEnabled,
-		sittingIntervalMins: payload.config.sittingIntervalSecs / 60,
-		waterIntervalMins: payload.config.waterIntervalSecs / 60,
-		restDurationMins: payload.config.restDurationSecs / 60,
-		extendDurationMins: payload.config.extendDurationSecs / 60,
-		autoRestSecs: payload.config.autoRestSecs,
-	});
+	Object.assign(form, nextForm);
 
 	await nextTick();
 	lastSavedForm = createFormSnapshot();
