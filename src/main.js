@@ -1,4 +1,5 @@
 import { createApp } from "vue";
+import "./element-plus.js";
 import "./style.css";
 
 /**
