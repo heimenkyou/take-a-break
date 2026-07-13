@@ -1,25 +1,23 @@
 <template>
 	<div class="alert-root">
 		<div class="window-bar" @mousedown="handleTitleBarMouseDown">
-			<div class="window-title">{{ isResting ? "休息中" : "休息提醒" }}</div>
+			<div class="window-title">{{ windowTitle }}</div>
 			<button class="window-btn" title="最小化" @click.stop="minimizeWindow">—</button>
 		</div>
 
 		<!-- 图标 -->
-		<div class="icon-wrap" :class="isResting ? 'icon--rest' : 'icon--alert'">
-			{{ isResting ? "🌿" : "🪑" }}
+		<div class="icon-wrap" :class="iconClass">
+			{{ iconText }}
 		</div>
 
 		<!-- 标题区 -->
 		<div class="title-area">
-			<h1 class="title">{{ isResting ? "休息一下" : "该活动了！" }}</h1>
-			<p class="subtitle">
-				{{ isResting ? "计时结束后窗口将自动关闭" : "你已经高强度专注很久了，起来活动一下吧" }}
-			</p>
+			<h1 class="title">{{ titleText }}</h1>
+			<p class="subtitle">{{ subtitleText }}</p>
 		</div>
 
 		<!-- 自动开始倒计时提示（仅 triggered 阶段） -->
-		<div v-if="!isResting" class="auto-hint">
+		<div v-if="isSittingAlert" class="auto-hint">
 			{{ autoRestCountdown }} 秒后自动开始休息
 		</div>
 
@@ -45,12 +43,12 @@
 			</svg>
 			<div class="ring-center">
 				<span class="ring-time">{{ displayTime }}</span>
-				<span class="ring-label">{{ isResting ? "休息剩余" : "已超时" }}</span>
+				<span class="ring-label">{{ ringLabel }}</span>
 			</div>
 		</div>
 
 		<!-- 操作按钮 -->
-		<div v-if="!isResting" class="actions">
+		<div v-if="isSittingAlert" class="actions">
 			<button class="btn-primary" @click="startRest">🌿 开始休息</button>
 			<div class="btn-row">
 				<button class="btn-secondary" @click="extend">⏱ 再等一会</button>
@@ -59,13 +57,21 @@
 		</div>
 
 		<!-- 休息中：提示 + 取消按钮 -->
-		<div v-else class="rest-content">
+		<div v-else-if="isRestingAlert" class="rest-content">
 			<div class="tips-card">
 				<div class="tip">👁 看向 6 米外，放松眼睛</div>
 				<div class="tip">🧘 起立深呼吸几次</div>
 				<div class="tip">💧 顺便去喝杯水</div>
 			</div>
 			<button class="btn-ghost" @click="skip">取消休息</button>
+		</div>
+
+		<div v-else-if="isWaterAlert" class="water-content">
+			<div class="tips-card">
+				<div class="tip">💧 现在喝几口水，放松一下。</div>
+				<div class="tip">⌛ 这个提醒会在 5 秒后自动关闭。</div>
+			</div>
+			<button class="btn-primary" @click="dismissWater">知道了</button>
 		</div>
 	</div>
 </template>
@@ -80,9 +86,12 @@ const appWindow = getCurrentWebviewWindow();
 
 const state = ref({
 	phase: "triggered",
+	activeAlert: "sitting",
 	sittingRemaining: 0,
 	waterRemaining: 80 * 60,
 	restRemaining: 5 * 60,
+	waterAlertRemaining: 5,
+	autoRestSecs: 10,
 	sittingInterval: 50 * 60,
 	waterInterval: 80 * 60,
 	restDuration: 5 * 60,
@@ -95,6 +104,8 @@ const autoRestCountdown = ref(10);
 let autoRestTimer = null;
 /** @type {() => void | null} */
 let unlistenTick = null;
+/** @type {string | null} */
+let lastPlayedAlert = null;
 
 // ── 格式化 ──────────────────────────────
 
@@ -110,14 +121,20 @@ function formatTime(secs) {
 
 // ── 计算属性 ─────────────────────────────
 
-const isResting = computed(() => state.value.phase === "resting");
+const activeAlert = computed(() => state.value.activeAlert);
+const isSittingAlert = computed(() => activeAlert.value === "sitting");
+const isRestingAlert = computed(() => activeAlert.value === "resting");
+const isWaterAlert = computed(() => activeAlert.value === "water");
 
 const circumference = 2 * Math.PI * 70; // ≈ 439.8
 
 const progressRatio = computed(() => {
 	const s = state.value;
-	if (s.phase === "resting") {
+	if (isRestingAlert.value) {
 		return s.restRemaining / (s.restDuration || 5 * 60);
+	}
+	if (isWaterAlert.value) {
+		return s.waterAlertRemaining / 5;
 	}
 	return Math.max(0, s.sittingRemaining / s.sittingInterval);
 });
@@ -126,15 +143,52 @@ const dashOffset = computed(() => circumference * (1 - progressRatio.value));
 
 const displayTime = computed(() => {
 	const s = state.value;
-	if (s.phase === "resting") return formatTime(s.restRemaining);
+	if (isRestingAlert.value) return formatTime(s.restRemaining);
+	if (isWaterAlert.value) return formatTime(s.waterAlertRemaining);
 	return formatTime(s.sittingRemaining < 0 ? 0 : s.sittingRemaining);
+});
+
+const windowTitle = computed(() => {
+	if (isRestingAlert.value) return "休息中";
+	if (isWaterAlert.value) return "喝水提醒";
+	return "休息提醒";
+});
+
+const titleText = computed(() => {
+	if (isRestingAlert.value) return "休息一下";
+	if (isWaterAlert.value) return "喝口水";
+	return "该活动了！";
+});
+
+const subtitleText = computed(() => {
+	if (isRestingAlert.value) return "计时结束后窗口将自动关闭";
+	if (isWaterAlert.value) return "短暂提醒一下，喝几口水就好";
+	return "你已经高强度专注很久了，起来活动一下吧";
+});
+
+const ringLabel = computed(() => {
+	if (isRestingAlert.value) return "休息剩余";
+	if (isWaterAlert.value) return "自动关闭";
+	return "已超时";
+});
+
+const iconClass = computed(() => {
+	if (isRestingAlert.value) return "icon--rest";
+	if (isWaterAlert.value) return "icon--water";
+	return "icon--alert";
+});
+
+const iconText = computed(() => {
+	if (isRestingAlert.value) return "🌿";
+	if (isWaterAlert.value) return "💧";
+	return "🪑";
 });
 
 // ── 自动开始休息倒计时 ───────────────────
 
 function startAutoCountdown() {
 	stopAutoCountdown();
-	autoRestCountdown.value = 10;
+	autoRestCountdown.value = state.value.autoRestSecs || 10;
 	autoRestTimer = setInterval(() => {
 		autoRestCountdown.value -= 1;
 		if (autoRestCountdown.value <= 0) {
@@ -151,6 +205,59 @@ function stopAutoCountdown() {
 	}
 }
 
+/** 使用 Web Audio API 生成简短提示音，避免额外音频素材依赖 */
+function playAlertSound(kind) {
+	const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+	if (!AudioContextCtor) return;
+
+	const ctx = new AudioContextCtor();
+	const now = ctx.currentTime;
+	const notes =
+		kind === "water"
+			? [
+					{ freq: 880, start: 0, duration: 0.09 },
+					{ freq: 1174, start: 0.12, duration: 0.12 },
+				]
+			: [
+					{ freq: 659, start: 0, duration: 0.12 },
+					{ freq: 784, start: 0.16, duration: 0.12 },
+					{ freq: 988, start: 0.34, duration: 0.18 },
+				];
+
+	for (const note of notes) {
+		const oscillator = ctx.createOscillator();
+		const gainNode = ctx.createGain();
+		oscillator.type = "sine";
+		oscillator.frequency.value = note.freq;
+		gainNode.gain.setValueAtTime(0.0001, now + note.start);
+		gainNode.gain.exponentialRampToValueAtTime(0.12, now + note.start + 0.02);
+		gainNode.gain.exponentialRampToValueAtTime(
+			0.0001,
+			now + note.start + note.duration,
+		);
+		oscillator.connect(gainNode);
+		gainNode.connect(ctx.destination);
+		oscillator.start(now + note.start);
+		oscillator.stop(now + note.start + note.duration);
+	}
+
+	setTimeout(() => {
+		ctx.close();
+	}, 1000);
+}
+
+/** 当前提醒切换时播放提示音，避免每秒 tick 重复触发 */
+function syncAlertSound() {
+	const current = activeAlert.value;
+	if (!current) {
+		lastPlayedAlert = null;
+		return;
+	}
+	if (lastPlayedAlert === current) return;
+	lastPlayedAlert = current;
+	playAlertSound(current);
+}
+
 /**
  * 顶栏空白区域触发系统拖动，避免误伤按钮点击。
  * @param {MouseEvent} event
@@ -163,13 +270,15 @@ function handleTitleBarMouseDown(event) {
 
 // phase 切换到 triggered 时启动自动倒计时
 watch(
-	() => state.value.phase,
-	(phase) => {
-		if (phase === "triggered") {
+	() => activeAlert.value,
+	(alertKind) => {
+		if (alertKind === "sitting") {
 			startAutoCountdown();
 		} else {
 			stopAutoCountdown();
 		}
+
+		syncAlertSound();
 	},
 );
 
@@ -190,6 +299,10 @@ function extend() {
 	invoke("user_action", { action: "extend" });
 }
 
+function dismissWater() {
+	invoke("user_action", { action: "dismiss_water" });
+}
+
 /** 最小化提醒窗口，便于稍后从任务栏恢复 */
 function minimizeWindow() {
 	appWindow.minimize();
@@ -200,10 +313,10 @@ function minimizeWindow() {
 onMounted(async () => {
 	state.value = await invoke("get_timer_state");
 
-	// 初始状态若已是 triggered，立即启动
-	if (state.value.phase === "triggered") {
+	if (state.value.activeAlert === "sitting") {
 		startAutoCountdown();
 	}
+	syncAlertSound();
 
 	unlistenTick = await listen("timer-tick", ({ payload }) => {
 		state.value = payload;
@@ -300,6 +413,11 @@ onUnmounted(() => {
 .icon--rest {
 	background: #dcfce7;
 	border: 1.5px solid #86efac;
+}
+
+.icon--water {
+	background: #dbeafe;
+	border: 1.5px solid #93c5fd;
 }
 
 /* ── 标题 ── */
@@ -455,6 +573,13 @@ onUnmounted(() => {
 
 /* ── 休息中内容 ── */
 .rest-content {
+	width: 100%;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.water-content {
 	width: 100%;
 	display: flex;
 	flex-direction: column;

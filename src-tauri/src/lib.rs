@@ -7,8 +7,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, Runtime, State, WindowEvent,
 };
-use tauri_plugin_notification::NotificationExt;
-use timer::{AppTimer, Phase, SharedTimer};
+use timer::{AlertKind, AppTimer, Phase, SharedTimer};
 
 // ─────────────────────────────────────────
 // Tauri Commands
@@ -36,6 +35,7 @@ fn user_action(action: String, state: State<'_, SharedTimer>, app: AppHandle) {
             t.set_paused(false);
             t.phase = Phase::Running;
             t.sitting_remaining = t.sitting_interval as i64;
+            t.dismiss_water_alert();
             drop(t);
             hide_alert(&app);
         }
@@ -44,6 +44,7 @@ fn user_action(action: String, state: State<'_, SharedTimer>, app: AppHandle) {
             t.set_paused(false);
             t.phase = Phase::Running;
             t.sitting_remaining = t.extend_duration as i64;
+            t.dismiss_water_alert();
             drop(t);
             hide_alert(&app);
         }
@@ -51,6 +52,12 @@ fn user_action(action: String, state: State<'_, SharedTimer>, app: AppHandle) {
         "pause_toggle" => {
             let should_pause = t.phase != Phase::Paused;
             t.set_paused(should_pause);
+        }
+        // 手动关闭喝水短提醒
+        "dismiss_water" => {
+            t.dismiss_water_alert();
+            drop(t);
+            hide_alert(&app);
         }
         _ => {}
     }
@@ -90,13 +97,20 @@ fn register_settings_close_handler(app: &AppHandle) {
 /// 更新计时器配置（来自设置页面，单位：秒）
 #[tauri::command]
 fn set_timer_config(
+    auto_rest_secs: Option<u64>,
     sitting_interval_secs: Option<u64>,
     water_interval_secs: Option<u64>,
     rest_duration_secs: Option<u64>,
     extend_duration_secs: Option<u64>,
+    rest_enabled: Option<bool>,
+    water_enabled: Option<bool>,
+    app: AppHandle,
     state: State<'_, SharedTimer>,
 ) {
     let mut t = state.lock().unwrap();
+    if let Some(v) = auto_rest_secs {
+        t.auto_rest_secs = v;
+    }
     if let Some(v) = sitting_interval_secs {
         t.sitting_interval = v;
         // 若剩余超过新上限则截断，避免下次提醒遥遥无期
@@ -116,6 +130,31 @@ fn set_timer_config(
     if let Some(v) = extend_duration_secs {
         t.extend_duration = v;
     }
+    if let Some(v) = rest_enabled {
+        t.rest_enabled = v;
+        if !v && matches!(t.active_alert(), Some(AlertKind::Sitting | AlertKind::Resting)) {
+            t.phase = Phase::Running;
+            t.rest_remaining = 0;
+            t.sitting_remaining = t.sitting_interval as i64;
+        }
+    }
+    if let Some(v) = water_enabled {
+        t.water_enabled = v;
+        if !v {
+            t.dismiss_water_alert();
+            t.water_remaining = t.water_interval as i64;
+        }
+    }
+
+    let snapshot = t.snapshot();
+    let should_hide_alert = snapshot.active_alert.is_none();
+    drop(t);
+
+    if should_hide_alert {
+        hide_alert(&app);
+    }
+
+    let _ = app.emit("timer-tick", snapshot);
 }
 
 // ─────────────────────────────────────────
@@ -180,6 +219,24 @@ fn position_popup_bottom_right(app: &AppHandle) {
     }
 }
 
+/// 显示托盘状态窗一小段时间，作为启动成功反馈
+fn show_popup_temporarily(app: AppHandle, seconds: u64) {
+    position_popup_bottom_right(&app);
+    if let Some(popup) = app.get_webview_window("popup") {
+        let _ = popup.show();
+    }
+
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(seconds)).await;
+
+        if let Some(popup) = app.get_webview_window("popup") {
+            if popup.is_visible().unwrap_or(false) {
+                let _ = popup.hide();
+            }
+        }
+    });
+}
+
 // ─────────────────────────────────────────
 // 后台计时器 tokio 任务
 // ─────────────────────────────────────────
@@ -192,7 +249,13 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
             let (snapshot, side_effect) = {
                 let mut t = timer.lock().unwrap();
 
-                let effect = match t.phase {
+                let mut effect = None;
+
+                if t.tick_water_alert() && t.active_alert().is_none() {
+                    effect = Some("water-reminder-ended");
+                }
+
+                let phase_effect = match t.phase {
                     Phase::Paused => None,
 
                     Phase::Resting => {
@@ -207,10 +270,12 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
                     }
 
                     Phase::Triggered => {
-                        t.water_remaining -= 1;
-                        if t.water_remaining <= 0 {
+                        if t.water_enabled {
+                            t.water_remaining -= 1;
+                        }
+                        if t.water_enabled && t.water_remaining <= 0 {
                             t.water_remaining = t.water_interval as i64;
-                            Some("water-reminder")
+                            None
                         } else {
                             None
                         }
@@ -218,25 +283,32 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
 
                     Phase::Running => {
                         t.sitting_remaining -= 1;
-                        t.water_remaining -= 1;
+                        if t.water_enabled {
+                            t.water_remaining -= 1;
+                        }
 
-                        if t.water_remaining <= 0 {
+                        if t.water_enabled && t.water_remaining <= 0 {
                             t.water_remaining = t.water_interval as i64;
-                            if t.sitting_remaining <= 0 {
+                            t.show_water_alert(5);
+                            if t.rest_enabled && t.sitting_remaining <= 0 {
                                 t.phase = Phase::Triggered;
                                 Some("sitting-triggered")
                             } else {
                                 Some("water-reminder")
                             }
-                        } else if t.sitting_remaining <= 0 {
+                        } else if t.sitting_remaining <= 0 && t.rest_enabled {
                             t.phase = Phase::Triggered;
                             Some("sitting-triggered")
+                        } else if t.sitting_remaining <= 0 {
+                            t.sitting_remaining = t.sitting_interval as i64;
+                            None
                         } else {
                             None
                         }
                     }
                 };
 
+                let effect = phase_effect.or(effect);
                 (t.snapshot(), effect)
             };
 
@@ -244,14 +316,8 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
                 match effect {
                     "sitting-triggered" => show_alert(&app),
                     "rest-ended" => hide_alert(&app),
-                    "water-reminder" => {
-                        let _ = app
-                            .notification()
-                            .builder()
-                            .title("歇会儿 💧")
-                            .body("记得喝水！每次 200ml 左右")
-                            .show();
-                    }
+                    "water-reminder" => show_alert(&app),
+                    "water-reminder-ended" => hide_alert(&app),
                     _ => {}
                 }
             }
@@ -271,7 +337,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
         .manage(timer_state.clone())
         .invoke_handler(tauri::generate_handler![
             get_timer_state,
@@ -385,18 +450,19 @@ pub fn run() {
                             t.sitting_remaining = 0;
                         }
                         "debug_water" => {
-                            let _ = app
-                                .notification()
-                                .builder()
-                                .title("歇会儿 💧")
-                                .body("记得喝水！每次 200ml 左右")
-                                .show();
+                            let state = app.state::<SharedTimer>();
+                            let mut t = state.lock().unwrap();
+                            t.show_water_alert(5);
+                            drop(t);
+                            show_alert(app);
                         }
                         "quit" => app.exit(0),
                         _ => {}
                     }
                 })
                 .build(app)?;
+
+            show_popup_temporarily(app.handle().clone(), 4);
 
             let app_handle = app.handle().clone();
             start_timer_loop(app_handle, timer_state);

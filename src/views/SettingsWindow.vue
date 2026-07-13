@@ -16,6 +16,13 @@
 					</div>
 				</div>
 				<div class="field-group">
+					<label class="switch-field">
+						<div>
+							<div class="field-label">启用休息提醒</div>
+							<div class="field-desc">关闭后不再弹出久坐休息窗口</div>
+						</div>
+						<input v-model="form.restEnabled" type="checkbox" class="switch-input" />
+					</label>
 					<label class="field">
 						<span class="field-label">提醒间隔</span>
 						<div class="slider-wrap">
@@ -98,6 +105,17 @@
 					</div>
 				</div>
 				<div class="field-group">
+					<label class="switch-field">
+						<div>
+							<div class="field-label">启用喝水提醒</div>
+							<div class="field-desc">关闭后不再弹出喝水提醒窗口</div>
+						</div>
+						<input
+							v-model="form.waterEnabled"
+							type="checkbox"
+							class="switch-input"
+						/>
+					</label>
 					<label class="field">
 						<span class="field-label">提醒间隔</span>
 						<div class="slider-wrap">
@@ -132,6 +150,8 @@ import { onMounted, reactive, ref } from "vue";
 
 /** 默认配置 */
 const DEFAULTS = {
+	restEnabled: true,
+	waterEnabled: true,
 	sittingIntervalMins: 50,
 	waterIntervalMins: 80,
 	restDurationMins: 5,
@@ -160,10 +180,13 @@ async function save() {
 	localStorage.setItem("tab-settings", JSON.stringify({ ...form }));
 
 	await invoke("set_timer_config", {
+		autoRestSecs: form.autoRestSecs,
 		sittingIntervalSecs: form.sittingIntervalMins * 60,
 		waterIntervalSecs: form.waterIntervalMins * 60,
 		restDurationSecs: form.restDurationMins * 60,
 		extendDurationSecs: form.extendDurationMins * 60,
+		restEnabled: form.restEnabled,
+		waterEnabled: form.waterEnabled,
 	});
 
 	justSaved.value = true;
@@ -270,10 +293,34 @@ onMounted(() => {
 	cursor: default;
 }
 
+.switch-field {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 10px 12px;
+	border-radius: 12px;
+	background: #f8fafc;
+	border: 1px solid #eef2f7;
+}
+
 .field-label {
 	font-size: 12px;
 	font-weight: 500;
 	color: #374151;
+}
+
+.field-desc {
+	font-size: 12px;
+	color: #9ca3af;
+	margin-top: 2px;
+}
+
+.switch-input {
+	width: 18px;
+	height: 18px;
+	accent-color: #7c3aed;
+	flex-shrink: 0;
 }
 
 /* ── 滑块 ── */
