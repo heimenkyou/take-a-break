@@ -1,5 +1,10 @@
 <template>
 	<div class="alert-root">
+		<div class="window-bar" @mousedown="handleTitleBarMouseDown">
+			<div class="window-title">{{ isResting ? "休息中" : "休息提醒" }}</div>
+			<button class="window-btn" title="最小化" @click.stop="minimizeWindow">—</button>
+		</div>
+
 		<!-- 图标 -->
 		<div class="icon-wrap" :class="isResting ? 'icon--rest' : 'icon--alert'">
 			{{ isResting ? "🌿" : "🪑" }}
@@ -68,7 +73,10 @@
 <script setup>
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+
+const appWindow = getCurrentWebviewWindow();
 
 const state = ref({
 	phase: "triggered",
@@ -85,6 +93,8 @@ const state = ref({
 const autoRestCountdown = ref(10);
 /** @type {number|null} */
 let autoRestTimer = null;
+/** @type {() => void | null} */
+let unlistenTick = null;
 
 // ── 格式化 ──────────────────────────────
 
@@ -141,6 +151,16 @@ function stopAutoCountdown() {
 	}
 }
 
+/**
+ * 顶栏空白区域触发系统拖动，避免误伤按钮点击。
+ * @param {MouseEvent} event
+ * @returns {void}
+ */
+function handleTitleBarMouseDown(event) {
+	if (event.target.closest("button")) return;
+	appWindow.startDragging();
+}
+
 // phase 切换到 triggered 时启动自动倒计时
 watch(
 	() => state.value.phase,
@@ -170,9 +190,12 @@ function extend() {
 	invoke("user_action", { action: "extend" });
 }
 
-// ── 生命周期 ─────────────────────────────
+/** 最小化提醒窗口，便于稍后从任务栏恢复 */
+function minimizeWindow() {
+	appWindow.minimize();
+}
 
-let unlistenTick = null;
+// ── 生命周期 ─────────────────────────────
 
 onMounted(async () => {
 	state.value = await invoke("get_timer_state");
@@ -201,12 +224,49 @@ onUnmounted(() => {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	justify-content: center;
+	justify-content: flex-start;
 	gap: 16px;
-	padding: 28px 24px;
+	padding: 12px 24px 28px;
 	background: #f5f7ff;
 	font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
 	animation: fadeInUp 0.3s ease both;
+	box-sizing: border-box;
+}
+
+.window-bar {
+	width: 100%;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	cursor: move;
+	user-select: none;
+}
+
+.window-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: #9ca3af;
+	letter-spacing: 0.04em;
+}
+
+.window-btn {
+	width: 28px;
+	height: 24px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: #9ca3af;
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+	transition:
+		background 0.15s,
+		color 0.15s;
+}
+
+.window-btn:hover {
+	background: rgba(255, 255, 255, 0.7);
+	color: #374151;
 }
 
 @keyframes fadeInUp {

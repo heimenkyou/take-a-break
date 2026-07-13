@@ -1,26 +1,39 @@
 import { createApp } from "vue";
 import "./style.css";
 
-// 根据 URL hash 决定渲染哪个窗口视图，避免引入完整路由库
-const hash = window.location.hash;
+/**
+ * 根据当前窗口 hash 按需加载对应视图。
+ * 返回值：Promise<VueComponent>
+ */
+async function loadRootComponent() {
+	const hash = window.location.hash;
 
-let rootComponent;
+	if (hash.startsWith("#/popup")) {
+		const { default: PopupWindow } = await import("./views/PopupWindow.vue");
+		return PopupWindow;
+	}
 
-if (hash.startsWith("#/popup")) {
-	const { default: PopupWindow } = await import("./views/PopupWindow.vue");
-	rootComponent = PopupWindow;
-} else if (hash.startsWith("#/alert")) {
-	const { default: AlertWindow } = await import("./views/AlertWindow.vue");
-	rootComponent = AlertWindow;
-} else if (hash.startsWith("#/settings")) {
-	const { default: SettingsWindow } = await import(
-		"./views/SettingsWindow.vue"
-	);
-	rootComponent = SettingsWindow;
-} else {
-	// 兜底：空壳（此项目无独立 main 窗口）
+	if (hash.startsWith("#/alert")) {
+		const { default: AlertWindow } = await import("./views/AlertWindow.vue");
+		return AlertWindow;
+	}
+
+	if (hash.startsWith("#/settings")) {
+		const { default: SettingsWindow } = await import(
+			"./views/SettingsWindow.vue"
+		);
+		return SettingsWindow;
+	}
+
+	// 空壳窗口：此项目通过系统托盘运行，无独立 main 窗口
 	const { default: App } = await import("./App.vue");
-	rootComponent = App;
+	return App;
 }
 
-createApp(rootComponent).mount("#app");
+/** 启动前端入口，避免顶层 await 影响生产构建 */
+async function bootstrap() {
+	const rootComponent = await loadRootComponent();
+	createApp(rootComponent).mount("#app");
+}
+
+void bootstrap();

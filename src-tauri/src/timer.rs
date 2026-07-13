@@ -39,6 +39,8 @@ pub struct TimerSnapshot {
 /// 计时器内部状态，由 tokio 任务持有并修改
 pub struct AppTimer {
     pub phase: Phase,
+    /// 暂停前所处阶段，恢复时用于回到原状态
+    paused_phase: Option<Phase>,
     pub sitting_remaining: i64,
     pub water_remaining: i64,
     pub rest_remaining: i64,
@@ -57,6 +59,7 @@ impl AppTimer {
     pub fn new() -> Self {
         Self {
             phase: Phase::Running,
+            paused_phase: None,
             sitting_remaining: (50 * 60) as i64,
             water_remaining: (80 * 60) as i64,
             rest_remaining: 0,
@@ -77,6 +80,21 @@ impl AppTimer {
             water_interval: self.water_interval,
             rest_duration: self.rest_duration,
             extend_duration: self.extend_duration,
+        }
+    }
+
+    /// 设置暂停模式，并在恢复时回到暂停前的阶段
+    pub fn set_paused(&mut self, paused: bool) {
+        if paused {
+            if self.phase != Phase::Paused {
+                self.paused_phase = Some(self.phase.clone());
+                self.phase = Phase::Paused;
+            }
+            return;
+        }
+
+        if self.phase == Phase::Paused {
+            self.phase = self.paused_phase.take().unwrap_or(Phase::Running);
         }
     }
 }

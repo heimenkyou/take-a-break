@@ -3,9 +3,9 @@ mod timer;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, State, WindowEvent,
+    AppHandle, Emitter, Manager, Runtime, State, WindowEvent,
 };
 use tauri_plugin_notification::NotificationExt;
 use timer::{AppTimer, Phase, SharedTimer};
@@ -27,11 +27,13 @@ fn user_action(action: String, state: State<'_, SharedTimer>, app: AppHandle) {
     match action.as_str() {
         // 开始休息：进入休息倒计时，alert 窗口保持显示
         "start_rest" => {
+            t.set_paused(false);
             t.phase = Phase::Resting;
             t.rest_remaining = t.rest_duration as i64;
         }
         // 跳过 / 取消休息：重置久坐计时，关闭 alert 窗口
         "skip" => {
+            t.set_paused(false);
             t.phase = Phase::Running;
             t.sitting_remaining = t.sitting_interval as i64;
             drop(t);
@@ -39,6 +41,7 @@ fn user_action(action: String, state: State<'_, SharedTimer>, app: AppHandle) {
         }
         // 延长：重置为短计时器，关闭 alert 窗口
         "extend" => {
+            t.set_paused(false);
             t.phase = Phase::Running;
             t.sitting_remaining = t.extend_duration as i64;
             drop(t);
@@ -46,11 +49,8 @@ fn user_action(action: String, state: State<'_, SharedTimer>, app: AppHandle) {
         }
         // 暂停/恢复
         "pause_toggle" => {
-            t.phase = if t.phase == Phase::Paused {
-                Phase::Running
-            } else {
-                Phase::Paused
-            };
+            let should_pause = t.phase != Phase::Paused;
+            t.set_paused(should_pause);
         }
         _ => {}
     }
@@ -68,6 +68,7 @@ fn hide_popup(app: AppHandle) {
 #[tauri::command]
 fn open_settings(app: AppHandle) {
     if let Some(w) = app.get_webview_window("settings") {
+        let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
@@ -129,9 +130,38 @@ fn hide_alert(app: &AppHandle) {
 
 fn show_alert(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("alert") {
+        let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();
     }
+}
+
+/// 同步托盘菜单中的提醒模式勾选状态
+fn sync_pause_menu_state<R: Runtime>(
+    normal_item: &CheckMenuItem<R>,
+    paused_item: &CheckMenuItem<R>,
+    paused: bool,
+) {
+    let _ = normal_item.set_checked(!paused);
+    let _ = paused_item.set_checked(paused);
+}
+
+/// 切换提醒模式，并立即广播给前端刷新状态
+fn apply_pause_mode<R: Runtime>(
+    app: &AppHandle,
+    timer: &SharedTimer,
+    normal_item: &CheckMenuItem<R>,
+    paused_item: &CheckMenuItem<R>,
+    paused: bool,
+) {
+    let snapshot = {
+        let mut state = timer.lock().unwrap();
+        state.set_paused(paused);
+        state.snapshot()
+    };
+
+    sync_pause_menu_state(normal_item, paused_item, paused);
+    let _ = app.emit("timer-tick", snapshot);
 }
 
 /// 定位 popup 窗口到屏幕右下角（托盘区域上方）
@@ -253,12 +283,20 @@ pub fn run() {
         .setup(|app| {
             register_settings_close_handler(app.handle());
 
-            let pause_item =
-                MenuItem::with_id(app, "pause", "暂停提醒", true, None::<&str>)?;
             let settings_item =
                 MenuItem::with_id(app, "settings", "打开设置", true, None::<&str>)?;
             let quit_item =
                 MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let mode_normal_item = CheckMenuItemBuilder::with_id("mode_running", "正常提醒")
+                .checked(true)
+                .build(app)?;
+            let mode_paused_item = CheckMenuItemBuilder::with_id("mode_paused", "暂停提醒")
+                .checked(false)
+                .build(app)?;
+            let mode_submenu = SubmenuBuilder::new(app, "提醒模式")
+                .item(&mode_normal_item)
+                .item(&mode_paused_item)
+                .build()?;
 
             // 调试菜单项仅在 debug 构建中出现
             let menu = if cfg!(debug_assertions) {
@@ -276,18 +314,19 @@ pub fn run() {
                     true,
                     None::<&str>,
                 )?;
-                Menu::with_items(
-                    app,
-                    &[
+                MenuBuilder::new(app)
+                    .items(&[
                         &settings_item,
-                        &pause_item,
+                        &mode_submenu,
                         &debug_sitting,
                         &debug_water,
                         &quit_item,
-                    ],
-                )?
+                    ])
+                    .build()?
             } else {
-                Menu::with_items(app, &[&settings_item, &pause_item, &quit_item])?
+                MenuBuilder::new(app)
+                    .items(&[&settings_item, &mode_submenu, &quit_item])
+                    .build()?
             };
 
             TrayIconBuilder::new()
@@ -314,33 +353,48 @@ pub fn run() {
                         }
                     }
                 })
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "settings" => open_settings(app.clone()),
-                    "pause" => {
-                        let state = app.state::<SharedTimer>();
-                        let mut t = state.lock().unwrap();
-                        t.phase = if t.phase == Phase::Paused {
-                            Phase::Running
-                        } else {
-                            Phase::Paused
-                        };
+                .on_menu_event({
+                    let mode_normal_item = mode_normal_item.clone();
+                    let mode_paused_item = mode_paused_item.clone();
+                    move |app, event| match event.id.as_ref() {
+                        "settings" => open_settings(app.clone()),
+                        "mode_running" => {
+                            let state = app.state::<SharedTimer>();
+                            apply_pause_mode(
+                                app,
+                                &state.inner().clone(),
+                                &mode_normal_item,
+                                &mode_paused_item,
+                                false,
+                            );
+                        }
+                        "mode_paused" => {
+                            let state = app.state::<SharedTimer>();
+                            apply_pause_mode(
+                                app,
+                                &state.inner().clone(),
+                                &mode_normal_item,
+                                &mode_paused_item,
+                                true,
+                            );
+                        }
+                        // 调试：仅 debug 构建可触发，生产构建菜单中无此项
+                        "debug_sitting" => {
+                            let state = app.state::<SharedTimer>();
+                            let mut t = state.lock().unwrap();
+                            t.sitting_remaining = 0;
+                        }
+                        "debug_water" => {
+                            let _ = app
+                                .notification()
+                                .builder()
+                                .title("歇会儿 💧")
+                                .body("记得喝水！每次 200ml 左右")
+                                .show();
+                        }
+                        "quit" => app.exit(0),
+                        _ => {}
                     }
-                    // 调试：仅 debug 构建可触发，生产构建菜单中无此项
-                    "debug_sitting" => {
-                        let state = app.state::<SharedTimer>();
-                        let mut t = state.lock().unwrap();
-                        t.sitting_remaining = 0;
-                    }
-                    "debug_water" => {
-                        let _ = app
-                            .notification()
-                            .builder()
-                            .title("歇会儿 💧")
-                            .body("记得喝水！每次 200ml 左右")
-                            .show();
-                    }
-                    "quit" => app.exit(0),
-                    _ => {}
                 })
                 .build(app)?;
 
