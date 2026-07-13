@@ -231,6 +231,9 @@
 					💡 提示：本程序关闭后将隐藏至系统托盘。右键托盘图标可重新打开设置页。
 				</div>
 				<div class="footer-actions">
+					<div v-if="statusText" :class="['footer-status', `footer-status--${statusTone}`]">
+						{{ statusText }}
+					</div>
 					<button class="secondary-button" type="button" @click="resetDefaults">
 						恢复默认
 					</button>
@@ -267,8 +270,28 @@ const form = reactive({ ...DEFAULTS });
 const configPath = ref("");
 const autostartSupported = ref(false);
 const isHydrating = ref(true);
+const statusText = ref("");
+const statusTone = ref("neutral");
 let lastSavedForm = createFormSnapshot();
 let saveQueue = Promise.resolve();
+let statusTimer = null;
+
+/** 更新底部状态提示，便于感知保存和恢复默认结果 */
+function setStatus(message, tone = "neutral", duration = 2200) {
+	statusText.value = message;
+	statusTone.value = tone;
+	if (statusTimer !== null) {
+		clearTimeout(statusTimer);
+		statusTimer = null;
+	}
+	if (duration > 0) {
+		statusTimer = setTimeout(() => {
+			statusText.value = "";
+			statusTone.value = "neutral";
+			statusTimer = null;
+		}, duration);
+	}
+}
 
 /** 生成当前表单快照，用于比较哪些字段真的发生了变化 */
 function createFormSnapshot() {
@@ -354,8 +377,17 @@ async function save(payload) {
 	await invoke("set_timer_config", payload);
 }
 
-function resetDefaults() {
+async function resetDefaults() {
+	const defaultSnapshot = { ...DEFAULTS };
+	if (Object.keys(buildChangedPayload(defaultSnapshot)).length === 0) {
+		setStatus("已经是默认设置", "neutral");
+		return;
+	}
+
 	Object.assign(form, DEFAULTS);
+	await nextTick();
+	await saveQueue;
+	setStatus("已恢复默认", "success");
 }
 
 watch(
@@ -365,12 +397,19 @@ watch(
 		const nextSnapshot = createFormSnapshot();
 		const payload = buildChangedPayload(nextSnapshot);
 		if (Object.keys(payload).length === 0) return;
+		setStatus("保存中...", "pending", 0);
 
 		saveQueue = saveQueue
 			.catch(() => {})
 			.then(async () => {
-				await save(payload);
-				lastSavedForm = nextSnapshot;
+				try {
+					await save(payload);
+					lastSavedForm = nextSnapshot;
+					setStatus("已保存", "success");
+				} catch (error) {
+					setStatus("保存失败", "error", 4000);
+					throw error;
+				}
 			});
 
 		await saveQueue;
@@ -619,6 +658,28 @@ onMounted(() => {
 	flex-shrink: 0;
 	display: flex;
 	align-items: center;
+	gap: 10px;
+}
+
+.footer-status {
+	font-size: 12px;
+	white-space: nowrap;
+}
+
+.footer-status--neutral {
+	color: #9ca3af;
+}
+
+.footer-status--pending {
+	color: #6b7280;
+}
+
+.footer-status--success {
+	color: #16a34a;
+}
+
+.footer-status--error {
+	color: #dc2626;
 }
 
 .secondary-button {

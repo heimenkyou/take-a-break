@@ -318,21 +318,6 @@ fn position_popup_bottom_right(app: &AppHandle) {
     }
 }
 
-/// 显示托盘状态窗一小段时间，作为启动成功反馈
-fn show_popup_temporarily(app: AppHandle, seconds: u64) {
-    show_popup(app.clone());
-
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(seconds)).await;
-
-        if let Some(popup) = app.get_webview_window("popup") {
-            if popup.is_visible().unwrap_or(false) {
-                let _ = popup.hide();
-            }
-        }
-    });
-}
-
 // ─────────────────────────────────────────
 // 后台计时器 tokio 任务
 // ─────────────────────────────────────────
@@ -566,9 +551,7 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            if initial_config.silent_start {
-                show_popup_temporarily(app.handle().clone(), 4);
-            } else {
+            if !initial_config.silent_start {
                 open_settings(app.handle().clone());
             }
 

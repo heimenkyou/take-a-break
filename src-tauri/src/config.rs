@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 #[cfg(target_os = "windows")]
-use std::process::Command;
+use winreg::{enums::HKEY_CURRENT_USER, RegKey};
 
 const AUTOSTART_VALUE_NAME: &str = "TakeABreakPortable";
 
@@ -94,16 +94,20 @@ pub fn autostart_supported() -> bool {
 pub fn is_autostart_enabled() -> bool {
     #[cfg(target_os = "windows")]
     {
-        let output = Command::new("reg")
-            .args([
-                "query",
-                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                "/v",
-                AUTOSTART_VALUE_NAME,
-            ])
-            .output();
+        let exe_path = match std::env::current_exe() {
+            Ok(path) => format!("\"{}\"", path.display()),
+            Err(_) => return false,
+        };
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let run_key = match hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run") {
+            Ok(key) => key,
+            Err(_) => return false,
+        };
 
-        return output.map(|result| result.status.success()).unwrap_or(false);
+        return run_key
+            .get_value::<String, _>(AUTOSTART_VALUE_NAME)
+            .map(|value| value == exe_path)
+            .unwrap_or(false);
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -116,51 +120,28 @@ pub fn is_autostart_enabled() -> bool {
 pub fn set_autostart_enabled(enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let (run_key, _) = hkcu
+            .create_subkey(r"Software\Microsoft\Windows\CurrentVersion\Run")
+            .map_err(|err| err.to_string())?;
+
         if enabled {
             let exe_path = std::env::current_exe().map_err(|err| err.to_string())?;
             let quoted_path = format!("\"{}\"", exe_path.display());
-            let status = Command::new("reg")
-                .args([
-                    "add",
-                    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                    "/v",
-                    AUTOSTART_VALUE_NAME,
-                    "/t",
-                    "REG_SZ",
-                    "/d",
-                    &quoted_path,
-                    "/f",
-                ])
-                .status()
+            run_key
+                .set_value(AUTOSTART_VALUE_NAME, &quoted_path)
                 .map_err(|err| err.to_string())?;
-
-            return if status.success() {
-                Ok(())
-            } else {
-                Err("写入开机启动项失败".to_string())
-            };
+            return Ok(());
         }
 
         if !is_autostart_enabled() {
             return Ok(());
         }
 
-        let status = Command::new("reg")
-            .args([
-                "delete",
-                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
-                "/v",
-                AUTOSTART_VALUE_NAME,
-                "/f",
-            ])
-            .status()
+        run_key
+            .delete_value(AUTOSTART_VALUE_NAME)
             .map_err(|err| err.to_string())?;
-
-        return if status.success() {
-            Ok(())
-        } else {
-            Err("删除开机启动项失败".to_string())
-        };
+        Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]
