@@ -101,10 +101,10 @@ const autoRestCountdown = ref(10);
 let autoRestTimer = null;
 /** @type {() => void | null} */
 let unlistenTick = null;
-/** @type {string | null} */
-let lastPlayedAlert = null;
 /** @type {number|null} */
 let restMelodyTimer = null;
+/** @type {string | null} */
+let previousAlertKind = null;
 
 // ── 格式化 ──────────────────────────────
 
@@ -199,33 +199,48 @@ function stopAutoCountdown() {
 	}
 }
 
+const ALERT_SOUND_NOTES = {
+	sitting: [
+		{ freq: 659, start: 0, duration: 0.12 },
+		{ freq: 784, start: 0.16, duration: 0.12 },
+		{ freq: 988, start: 0.34, duration: 0.18 },
+	],
+	resting: [
+		{ freq: 523, start: 0, duration: 0.18 },
+		{ freq: 659, start: 0.2, duration: 0.18 },
+		{ freq: 784, start: 0.42, duration: 0.22 },
+		{ freq: 1047, start: 0.7, duration: 0.3 },
+	],
+	"resting-loop": [
+		{ freq: 523, start: 0, duration: 0.18 },
+		{ freq: 659, start: 0.22, duration: 0.18 },
+		{ freq: 784, start: 0.48, duration: 0.24 },
+		{ freq: 659, start: 0.9, duration: 0.2 },
+		{ freq: 587, start: 1.14, duration: 0.2 },
+		{ freq: 698, start: 1.4, duration: 0.28 },
+	],
+	"resting-end": [
+		{ freq: 1047, start: 0, duration: 0.18 },
+		{ freq: 784, start: 0.22, duration: 0.18 },
+		{ freq: 659, start: 0.46, duration: 0.18 },
+		{ freq: 523, start: 0.72, duration: 0.34 },
+	],
+	water: [
+		{ freq: 880, start: 0, duration: 0.09 },
+		{ freq: 1174, start: 0.12, duration: 0.12 },
+	],
+};
+
 /** 使用 Web Audio API 生成简短提示音，避免额外音频素材依赖 */
 function playAlertSound(kind) {
 	const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 	if (!AudioContextCtor) return;
 
+	const notes = ALERT_SOUND_NOTES[kind];
+	if (!notes?.length) return;
+
 	const ctx = new AudioContextCtor();
 	const now = ctx.currentTime;
-	const notes =
-		kind === "water"
-			? [
-					{ freq: 880, start: 0, duration: 0.09 },
-					{ freq: 1174, start: 0.12, duration: 0.12 },
-				]
-			: kind === "resting-loop"
-				? [
-						{ freq: 523, start: 0, duration: 0.22 },
-						{ freq: 659, start: 0.28, duration: 0.22 },
-						{ freq: 784, start: 0.58, duration: 0.26 },
-						{ freq: 659, start: 0.94, duration: 0.24 },
-						{ freq: 698, start: 1.28, duration: 0.24 },
-						{ freq: 880, start: 1.6, duration: 0.34 },
-					]
-				: [
-						{ freq: 659, start: 0, duration: 0.12 },
-						{ freq: 784, start: 0.16, duration: 0.12 },
-						{ freq: 988, start: 0.34, duration: 0.18 },
-					];
 
 	for (const note of notes) {
 		const oscillator = ctx.createOscillator();
@@ -248,20 +263,23 @@ function playAlertSound(kind) {
 		() => {
 			ctx.close();
 		},
-		kind === "resting-loop" ? 3000 : 1000,
+		kind === "resting-loop" ? 2600 : 1200,
 	);
 }
 
-/** 当前提醒切换时播放提示音，避免每秒 tick 重复触发 */
-function syncAlertSound() {
-	const current = activeAlert.value;
-	if (!current) {
-		lastPlayedAlert = null;
+/** 根据提醒状态切换播放对应提示音，避免每秒 tick 重复触发 */
+function syncAlertSound(nextAlertKind) {
+	const previous = previousAlertKind;
+	previousAlertKind = nextAlertKind ?? null;
+
+	if (nextAlertKind === previous) return;
+	if (previous === "resting" && nextAlertKind !== "resting") {
+		playAlertSound("resting-end");
 		return;
 	}
-	if (lastPlayedAlert === current) return;
-	lastPlayedAlert = current;
-	playAlertSound(current);
+	if (nextAlertKind) {
+		playAlertSound(nextAlertKind);
+	}
 }
 
 /** 休息阶段每隔一段时间播放短旋律，提醒当前仍在休息中 */
@@ -305,7 +323,7 @@ watch(
 			stopRestMelodyLoop();
 		}
 
-		syncAlertSound();
+		syncAlertSound(alertKind);
 	},
 );
 
@@ -343,7 +361,7 @@ onMounted(async () => {
 	if (state.value.activeAlert === "sitting") {
 		startAutoCountdown();
 	}
-	syncAlertSound();
+	previousAlertKind = state.value.activeAlert ?? null;
 
 	unlistenTick = await listen("timer-tick", ({ payload }) => {
 		state.value = payload;
