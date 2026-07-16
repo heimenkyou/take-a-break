@@ -84,6 +84,8 @@ const appWindow = getCurrentWebviewWindow();
 const state = ref({
 	phase: "triggered",
 	activeAlert: "sitting",
+	restTimerPaused: false,
+	waterTimerPaused: false,
 	sittingRemaining: 0,
 	waterRemaining: 80 * 60,
 	restRemaining: 5 * 60,
@@ -336,7 +338,7 @@ function handleTitleBarMouseDown(event) {
 watch(
 	() => activeAlert.value,
 	(alertKind) => {
-		if (alertKind === "sitting") {
+		if (alertKind === "sitting" && !state.value.restTimerPaused) {
 			startAutoCountdown();
 		} else {
 			stopAutoCountdown();
@@ -349,6 +351,18 @@ watch(
 		}
 
 		syncAlertSound(alertKind);
+	},
+);
+
+watch(
+	() => state.value.restTimerPaused,
+	(paused) => {
+		if (state.value.activeAlert !== "sitting") return;
+		if (paused) {
+			stopAutoCountdown();
+		} else {
+			startAutoCountdown();
+		}
 	},
 );
 
@@ -383,7 +397,7 @@ function minimizeWindow() {
 onMounted(async () => {
 	state.value = await invoke("get_timer_state");
 
-	if (state.value.activeAlert === "sitting") {
+	if (state.value.activeAlert === "sitting" && !state.value.restTimerPaused) {
 		startAutoCountdown();
 	}
 	previousAlertKind = state.value.activeAlert ?? null;

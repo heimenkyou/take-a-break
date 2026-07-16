@@ -12,8 +12,6 @@ pub enum Phase {
     Triggered,
     /// 用户点击"开始休息"，正向休息倒计时中
     Resting,
-    /// 用户手动暂停全部提醒
-    Paused,
 }
 
 /// 当前提醒窗口承载的提醒类型
@@ -34,6 +32,10 @@ pub enum AlertKind {
 pub struct TimerSnapshot {
     pub phase: Phase,
     pub active_alert: Option<AlertKind>,
+    /// 休息相关计时是否暂停（久坐/休息共用）
+    pub rest_timer_paused: bool,
+    /// 喝水计时是否暂停
+    pub water_timer_paused: bool,
     /// 久坐倒计时剩余秒数（Running/Triggered 阶段有意义）
     pub sitting_remaining: i64,
     /// 喝水倒计时剩余秒数
@@ -61,10 +63,12 @@ pub struct TimerSnapshot {
 /// 计时器内部状态，由 tokio 任务持有并修改
 pub struct AppTimer {
     pub phase: Phase,
-    /// 暂停前所处阶段，恢复时用于回到原状态
-    paused_phase: Option<Phase>,
     /// 喝水提醒剩余展示秒数，0 表示当前无短提醒窗口
     water_alert_remaining: i64,
+    /// 休息相关计时是否暂停（久坐/休息共用）
+    pub rest_timer_paused: bool,
+    /// 喝水计时是否暂停
+    pub water_timer_paused: bool,
     pub sitting_remaining: i64,
     pub water_remaining: i64,
     pub rest_remaining: i64,
@@ -89,8 +93,9 @@ impl AppTimer {
     pub fn new() -> Self {
         Self {
             phase: Phase::Running,
-            paused_phase: None,
             water_alert_remaining: 0,
+            rest_timer_paused: false,
+            water_timer_paused: false,
             sitting_remaining: (50 * 60) as i64,
             water_remaining: (80 * 60) as i64,
             rest_remaining: 0,
@@ -113,18 +118,21 @@ impl AppTimer {
         self.extend_duration = config.extend_duration_secs;
         self.rest_enabled = config.rest_enabled;
         self.water_enabled = config.water_enabled;
+        self.rest_timer_paused = false;
+        self.water_timer_paused = false;
         self.sitting_remaining = self.sitting_interval as i64;
         self.water_remaining = self.water_interval as i64;
         self.rest_remaining = 0;
         self.water_alert_remaining = 0;
         self.phase = Phase::Running;
-        self.paused_phase = None;
     }
 
     pub fn snapshot(&self) -> TimerSnapshot {
         TimerSnapshot {
             phase: self.phase.clone(),
             active_alert: self.active_alert(),
+            rest_timer_paused: self.rest_timer_paused,
+            water_timer_paused: self.water_timer_paused,
             sitting_remaining: self.sitting_remaining,
             water_remaining: self.water_remaining,
             rest_remaining: self.rest_remaining,
@@ -139,19 +147,37 @@ impl AppTimer {
         }
     }
 
-    /// 设置暂停模式，并在恢复时回到暂停前的阶段
-    pub fn set_paused(&mut self, paused: bool) {
-        if paused {
-            if self.phase != Phase::Paused {
-                self.paused_phase = Some(self.phase.clone());
-                self.phase = Phase::Paused;
-            }
-            return;
-        }
+    /// 切换休息相关计时的暂停状态
+    pub fn toggle_rest_timer_paused(&mut self) {
+        self.rest_timer_paused = !self.rest_timer_paused;
+    }
 
-        if self.phase == Phase::Paused {
-            self.phase = self.paused_phase.take().unwrap_or(Phase::Running);
+    /// 切换喝水计时的暂停状态
+    pub fn toggle_water_timer_paused(&mut self) {
+        self.water_timer_paused = !self.water_timer_paused;
+    }
+
+    /// 重置休息相关计时。
+    /// 若当前正在休息，则重置休息剩余时间；否则重置到下次久坐提醒。
+    pub fn reset_rest_timer(&mut self) {
+        self.rest_timer_paused = false;
+        match self.phase {
+            Phase::Resting => {
+                self.rest_remaining = self.rest_duration as i64;
+            }
+            _ => {
+                self.phase = Phase::Running;
+                self.sitting_remaining = self.sitting_interval as i64;
+                self.rest_remaining = 0;
+            }
         }
+    }
+
+    /// 重置喝水计时，并关闭当前喝水短提醒。
+    pub fn reset_water_timer(&mut self) {
+        self.water_timer_paused = false;
+        self.water_remaining = self.water_interval as i64;
+        self.dismiss_water_alert();
     }
 
     /// 当前是否应展示提醒窗口

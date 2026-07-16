@@ -14,8 +14,8 @@
 			{
 				"label": "popup",
 				"url": "/#/popup",
-				"width": 220,
-				"height": 180,
+				"width": 240,
+				"height": 210,
 				"decorations": false,
 				"transparent": false,
 				"alwaysOnTop": true,

@@ -8,11 +8,8 @@
 				{{ phaseLabel }}
 			</span>
 			<div class="header-actions">
-				<button
-					:class="['icon-btn', { 'icon-btn--active': pinned }]"
-					:title="pinned ? '取消固定' : '固定窗口'"
-					@click.stop="togglePin"
-				>
+				<button :class="['icon-btn', { 'icon-btn--active': pinned }]" :title="pinned ? '取消固定' : '固定窗口'"
+					@click.stop="togglePin">
 					📌
 				</button>
 				<button class="icon-btn" title="关闭" @click.stop="closePopup">✕</button>
@@ -21,11 +18,22 @@
 
 		<!-- 久坐倒计时 -->
 		<div class="timer-block">
-			<div class="timer-label">
+			<div :class="['timer-label', { 'timer-label--muted': state.restTimerPaused }]">
 				<span class="timer-icon">{{ timerLabelIcon }}</span>
 				<span class="timer-label-text">{{ timerLabel }}</span>
 			</div>
-			<div class="countdown size-main">{{ mainCountdown }}</div>
+			<div :class="['countdown', 'size-main', { 'countdown--muted': state.restTimerPaused }]">
+				{{ mainCountdown }}
+			</div>
+			<div class="action-row">
+				<button class="icon-action-btn" title="重置休息计时" @click.stop="resetRestTimer">
+					↻
+				</button>
+				<button :class="['icon-action-btn', { 'icon-action-btn--active': state.restTimerPaused }]"
+					:title="state.restTimerPaused ? '恢复休息计时' : '暂停休息计时'" @click.stop="toggleRestPause">
+					{{ state.restTimerPaused ? "▶" : "⏸" }}
+				</button>
+			</div>
 		</div>
 
 		<!-- 分隔线 -->
@@ -34,8 +42,18 @@
 		<!-- 喝水倒计时 -->
 		<div class="water-row">
 			<span class="water-icon">💧</span>
-			<span class="water-text">喝水</span>
-			<span class="water-time">{{ formatTime(state.waterRemaining) }}</span>
+			<span :class="['water-text', { 'water-text--muted': state.waterTimerPaused }]">喝水</span>
+			<span :class="['water-time', { 'water-time--muted': state.waterTimerPaused }]">
+				{{ formatTime(state.waterRemaining) }}
+			</span>
+			<button class="icon-action-btn icon-action-btn--compact" title="重置喝水计时" @click.stop="resetWaterTimer">
+				↻
+			</button>
+			<button
+				:class="['icon-action-btn', 'icon-action-btn--compact', { 'icon-action-btn--active': state.waterTimerPaused }]"
+				:title="state.waterTimerPaused ? '恢复喝水计时' : '暂停喝水计时'" @click.stop="toggleWaterPause">
+				{{ state.waterTimerPaused ? "▶" : "⏸" }}
+			</button>
 		</div>
 
 		<div class="helper-text">右键托盘图标可打开设置页</div>
@@ -68,16 +86,12 @@ const PHASE_META = {
 		timerLabel: "休息剩余时间",
 		timerIcon: "🛌",
 	},
-	paused: {
-		label: "已暂停",
-		badgeClass: "badge-muted",
-		timerLabel: "提醒已暂停",
-		timerIcon: "⏱️",
-	},
 };
 
 const state = ref({
 	phase: "running",
+	restTimerPaused: false,
+	waterTimerPaused: false,
 	sittingRemaining: 50 * 60,
 	waterRemaining: 80 * 60,
 	restRemaining: 0,
@@ -131,6 +145,22 @@ function togglePin() {
 	pinned.value = !pinned.value;
 }
 
+function toggleRestPause() {
+	invoke("user_action", { action: "toggle_rest_pause" });
+}
+
+function resetRestTimer() {
+	invoke("user_action", { action: "reset_rest_timer" });
+}
+
+function toggleWaterPause() {
+	invoke("user_action", { action: "toggle_water_pause" });
+}
+
+function resetWaterTimer() {
+	invoke("user_action", { action: "reset_water_timer" });
+}
+
 /**
  * 点击非按钮区域时触发系统级窗口拖动
  * @param {MouseEvent} e
@@ -171,8 +201,8 @@ onUnmounted(() => {
 
 <style scoped>
 .popup-root {
-	width: 220px;
-	height: 180px;
+	width: 240px;
+	height: 210px;
 	border-radius: 14px;
 	padding: 10px 14px 10px;
 	display: flex;
@@ -272,7 +302,7 @@ onUnmounted(() => {
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 4px;
+	gap: 6px;
 }
 
 .timer-label {
@@ -291,6 +321,11 @@ onUnmounted(() => {
 	color: #9ca3af;
 }
 
+.timer-label--muted .timer-icon,
+.timer-label--muted .timer-label-text {
+	color: #9ca3af;
+}
+
 /* 覆盖全局 countdown 的暗色渐变为浅色文字 */
 .countdown {
 	font-family: "JetBrains Mono", "Fira Code", monospace;
@@ -306,6 +341,56 @@ onUnmounted(() => {
 	font-size: 38px;
 }
 
+.countdown--muted {
+	-webkit-text-fill-color: #9ca3af;
+	color: #9ca3af;
+}
+
+.action-row {
+	display: flex;
+	gap: 6px;
+}
+
+
+.icon-action-btn {
+	width: 24px;
+	height: 24px;
+	border: none;
+	background: transparent;
+	color: #6b7280;
+	border-radius: 8px;
+	padding: 0;
+	font-size: 13px;
+	line-height: 1;
+	cursor: pointer;
+	transition:
+		background 0.15s,
+		color 0.15s,
+		opacity 0.15s;
+	opacity: 0.82;
+}
+
+
+.icon-action-btn:hover {
+	background: #f3f4f6;
+	color: #111827;
+	opacity: 1;
+}
+
+
+.icon-action-btn--active {
+	color: #6d28d9;
+}
+
+
+.icon-action-btn--active:hover {
+	background: #ede9fe;
+}
+
+.icon-action-btn--compact {
+	flex-shrink: 0;
+}
+
 /* ── 分隔线 ── */
 .divider {
 	height: 1px;
@@ -319,6 +404,7 @@ onUnmounted(() => {
 	align-items: center;
 	gap: 5px;
 	flex-shrink: 0;
+	flex-wrap: wrap;
 }
 
 .water-icon {
@@ -331,11 +417,20 @@ onUnmounted(() => {
 	flex: 1;
 }
 
+.water-text--muted {
+	color: #c0c4cc;
+}
+
 .water-time {
 	font-family: "JetBrains Mono", monospace;
 	font-size: 12px;
 	color: #374151;
 	font-weight: 500;
+	margin-left: auto;
+}
+
+.water-time--muted {
+	color: #9ca3af;
 }
 
 .helper-text {

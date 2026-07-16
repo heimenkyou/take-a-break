@@ -11,9 +11,17 @@ use std::time::Duration;
 use tauri::{
     menu::{CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Emitter, Manager, Runtime, State, WindowEvent,
+    AppHandle, Emitter, Manager, Runtime, State, WindowEvent, Wry,
 };
 use timer::{AlertKind, AppTimer, Phase, SharedTimer};
+
+const POPUP_WIDTH: f64 = 240.0;
+const POPUP_HEIGHT: f64 = 210.0;
+
+struct PauseMenuState {
+    rest_item: CheckMenuItem<Wry>,
+    water_item: CheckMenuItem<Wry>,
+}
 
 // ─────────────────────────────────────────
 // Tauri Commands
@@ -42,48 +50,69 @@ async fn get_settings() -> Result<SettingsPayload, String> {
     .map_err(|err| err.to_string())?
 }
 
-/// 用户操作：start_rest / skip / extend / pause_toggle
+/// 用户操作：start_rest / skip / extend / dismiss_water / reset_xxx / toggle_xxx_pause
 #[tauri::command]
 fn user_action(action: String, state: State<'_, SharedTimer>, app: AppHandle) {
-    let mut t = state.lock().unwrap();
-    match action.as_str() {
-        // 开始休息：进入休息倒计时，alert 窗口保持显示
-        "start_rest" => {
-            t.set_paused(false);
-            t.phase = Phase::Resting;
-            t.rest_remaining = t.rest_duration as i64;
+    let should_hide_alert = {
+        let mut t = state.lock().unwrap();
+        match action.as_str() {
+            // 开始休息：进入休息倒计时，alert 窗口保持显示
+            "start_rest" => {
+                t.rest_timer_paused = false;
+                t.phase = Phase::Resting;
+                t.rest_remaining = t.rest_duration as i64;
+            }
+            // 跳过 / 取消休息：重置久坐计时，关闭 alert 窗口
+            "skip" => {
+                t.rest_timer_paused = false;
+                t.phase = Phase::Running;
+                t.sitting_remaining = t.sitting_interval as i64;
+                t.dismiss_water_alert();
+            }
+            // 延长：重置为短计时器，关闭 alert 窗口
+            "extend" => {
+                t.rest_timer_paused = false;
+                t.phase = Phase::Running;
+                t.sitting_remaining = t.extend_duration as i64;
+                t.dismiss_water_alert();
+            }
+            // 分别暂停/恢复休息与喝水计时
+            "toggle_rest_pause" => {
+                t.toggle_rest_timer_paused();
+            }
+            "toggle_water_pause" => {
+                t.toggle_water_timer_paused();
+            }
+            // 分别重置休息与喝水计时
+            "reset_rest_timer" => {
+                t.reset_rest_timer();
+            }
+            "reset_water_timer" => {
+                t.reset_water_timer();
+            }
+            // 手动关闭喝水短提醒
+            "dismiss_water" => {
+                t.dismiss_water_alert();
+            }
+            _ => {}
         }
-        // 跳过 / 取消休息：重置久坐计时，关闭 alert 窗口
-        "skip" => {
-            t.set_paused(false);
-            t.phase = Phase::Running;
-            t.sitting_remaining = t.sitting_interval as i64;
-            t.dismiss_water_alert();
-            drop(t);
-            hide_alert(&app);
-        }
-        // 延长：重置为短计时器，关闭 alert 窗口
-        "extend" => {
-            t.set_paused(false);
-            t.phase = Phase::Running;
-            t.sitting_remaining = t.extend_duration as i64;
-            t.dismiss_water_alert();
-            drop(t);
-            hide_alert(&app);
-        }
-        // 暂停/恢复
-        "pause_toggle" => {
-            let should_pause = t.phase != Phase::Paused;
-            t.set_paused(should_pause);
-        }
-        // 手动关闭喝水短提醒
-        "dismiss_water" => {
-            t.dismiss_water_alert();
-            drop(t);
-            hide_alert(&app);
-        }
-        _ => {}
+
+        t.active_alert().is_none()
+    };
+
+    if should_hide_alert {
+        hide_alert(&app);
     }
+
+    let snapshot = state.lock().unwrap().snapshot();
+    let menu_state = app.state::<PauseMenuState>();
+    sync_pause_menu_state(
+        &menu_state.rest_item,
+        &menu_state.water_item,
+        snapshot.rest_timer_paused,
+        snapshot.water_timer_paused,
+    );
+    let _ = app.emit("timer-tick", snapshot);
 }
 
 /// 前端请求隐藏 popup 窗口（blur 事件触发）
@@ -99,6 +128,7 @@ fn hide_popup(app: AppHandle) {
 fn show_popup(app: AppHandle) {
     position_popup_bottom_right(&app);
     if let Some(popup) = app.get_webview_window("popup") {
+        let _ = popup.set_size(tauri::LogicalSize::new(POPUP_WIDTH, POPUP_HEIGHT));
         let _ = popup.unminimize();
         let _ = popup.show();
         let _ = popup.set_focus();
@@ -274,31 +304,41 @@ fn show_alert(app: &AppHandle) {
     }
 }
 
-/// 同步托盘菜单中的提醒模式勾选状态
+/// 同步托盘菜单中的暂停勾选状态
 fn sync_pause_menu_state<R: Runtime>(
-    normal_item: &CheckMenuItem<R>,
-    paused_item: &CheckMenuItem<R>,
-    paused: bool,
+    rest_item: &CheckMenuItem<R>,
+    water_item: &CheckMenuItem<R>,
+    rest_paused: bool,
+    water_paused: bool,
 ) {
-    let _ = normal_item.set_checked(!paused);
-    let _ = paused_item.set_checked(paused);
+    let _ = rest_item.set_checked(rest_paused);
+    let _ = water_item.set_checked(water_paused);
 }
 
-/// 切换提醒模式，并立即广播给前端刷新状态
-fn apply_pause_mode<R: Runtime>(
+/// 切换指定计时器的暂停状态，并立即广播给前端刷新状态
+fn toggle_timer_pause<R: Runtime>(
     app: &AppHandle,
     timer: &SharedTimer,
-    normal_item: &CheckMenuItem<R>,
-    paused_item: &CheckMenuItem<R>,
-    paused: bool,
+    rest_item: &CheckMenuItem<R>,
+    water_item: &CheckMenuItem<R>,
+    kind: &str,
 ) {
     let snapshot = {
         let mut state = timer.lock().unwrap();
-        state.set_paused(paused);
+        match kind {
+            "rest" => state.toggle_rest_timer_paused(),
+            "water" => state.toggle_water_timer_paused(),
+            _ => return,
+        }
         state.snapshot()
     };
 
-    sync_pause_menu_state(normal_item, paused_item, paused);
+    sync_pause_menu_state(
+        rest_item,
+        water_item,
+        snapshot.rest_timer_paused,
+        snapshot.water_timer_paused,
+    );
     let _ = app.emit("timer-tick", snapshot);
 }
 
@@ -310,9 +350,9 @@ fn position_popup_bottom_right(app: &AppHandle) {
             let size = monitor.size();
             let logical_w = size.width as f64 / scale;
             let logical_h = size.height as f64 / scale;
-            // 弹窗尺寸 220×180，距边缘 12px，任务栏高度约 48px
-            let x = logical_w - 220.0 - 12.0;
-            let y = logical_h - 180.0 - 12.0 - 48.0;
+            // 弹窗尺寸由常量统一控制，避免样式和窗口配置不一致
+            let x = logical_w - POPUP_WIDTH - 12.0;
+            let y = logical_h - POPUP_HEIGHT - 12.0 - 48.0;
             let _ = popup.set_position(tauri::LogicalPosition::new(x, y));
         }
     }
@@ -337,21 +377,23 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
                 }
 
                 let phase_effect = match t.phase {
-                    Phase::Paused => None,
-
                     Phase::Resting => {
-                        t.rest_remaining -= 1;
-                        if t.rest_remaining <= 0 {
-                            t.phase = Phase::Running;
-                            t.sitting_remaining = t.sitting_interval as i64;
-                            Some("rest-ended")
-                        } else {
+                        if t.rest_timer_paused {
                             None
+                        } else {
+                            t.rest_remaining -= 1;
+                            if t.rest_remaining <= 0 {
+                                t.phase = Phase::Running;
+                                t.sitting_remaining = t.sitting_interval as i64;
+                                Some("rest-ended")
+                            } else {
+                                None
+                            }
                         }
                     }
 
                     Phase::Triggered => {
-                        if t.water_enabled {
+                        if t.water_enabled && !t.water_timer_paused {
                             t.water_remaining -= 1;
                         }
                         if t.water_enabled && t.water_remaining <= 0 {
@@ -363,8 +405,10 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
                     }
 
                     Phase::Running => {
-                        t.sitting_remaining -= 1;
-                        if t.water_enabled {
+                        if !t.rest_timer_paused {
+                            t.sitting_remaining -= 1;
+                        }
+                        if t.water_enabled && !t.water_timer_paused {
                             t.water_remaining -= 1;
                         }
 
@@ -381,6 +425,7 @@ fn start_timer_loop(app: AppHandle, timer: SharedTimer) {
                             t.phase = Phase::Triggered;
                             Some("sitting-triggered")
                         } else if t.sitting_remaining <= 0 {
+                            t.phase = Phase::Running;
                             t.sitting_remaining = t.sitting_interval as i64;
                             None
                         } else {
@@ -441,16 +486,20 @@ pub fn run() {
                 MenuItem::with_id(app, "settings", "打开设置", true, None::<&str>)?;
             let quit_item =
                 MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-            let mode_normal_item = CheckMenuItemBuilder::with_id("mode_running", "正常提醒")
-                .checked(true)
-                .build(app)?;
-            let mode_paused_item = CheckMenuItemBuilder::with_id("mode_paused", "暂停提醒")
+            let pause_rest_item = CheckMenuItemBuilder::with_id("pause_rest", "暂停休息计时")
                 .checked(false)
                 .build(app)?;
-            let mode_submenu = SubmenuBuilder::new(app, "提醒模式")
-                .item(&mode_normal_item)
-                .item(&mode_paused_item)
+            let pause_water_item = CheckMenuItemBuilder::with_id("pause_water", "暂停喝水计时")
+                .checked(false)
+                .build(app)?;
+            let mode_submenu = SubmenuBuilder::new(app, "暂停计时")
+                .item(&pause_rest_item)
+                .item(&pause_water_item)
                 .build()?;
+            app.manage(PauseMenuState {
+                rest_item: pause_rest_item.clone(),
+                water_item: pause_water_item.clone(),
+            });
 
             // 调试菜单项仅在 debug 构建中出现
             let menu = if cfg!(debug_assertions) {
@@ -507,29 +556,29 @@ pub fn run() {
                     }
                 })
                 .on_menu_event({
-                    let mode_normal_item = mode_normal_item.clone();
-                    let mode_paused_item = mode_paused_item.clone();
+                    let pause_rest_item = pause_rest_item.clone();
+                    let pause_water_item = pause_water_item.clone();
                     move |app, event| match event.id.as_ref() {
                         "show_time" => show_popup(app.clone()),
                         "settings" => open_settings(app.clone()),
-                        "mode_running" => {
+                        "pause_rest" => {
                             let state = app.state::<SharedTimer>();
-                            apply_pause_mode(
+                            toggle_timer_pause(
                                 app,
                                 &state.inner().clone(),
-                                &mode_normal_item,
-                                &mode_paused_item,
-                                false,
+                                &pause_rest_item,
+                                &pause_water_item,
+                                "rest",
                             );
                         }
-                        "mode_paused" => {
+                        "pause_water" => {
                             let state = app.state::<SharedTimer>();
-                            apply_pause_mode(
+                            toggle_timer_pause(
                                 app,
                                 &state.inner().clone(),
-                                &mode_normal_item,
-                                &mode_paused_item,
-                                true,
+                                &pause_rest_item,
+                                &pause_water_item,
+                                "water",
                             );
                         }
                         // 调试：仅 debug 构建可触发，生产构建菜单中无此项
