@@ -15,8 +15,8 @@ use tauri::{
 };
 use timer::{AlertKind, AppTimer, Phase, SharedTimer};
 
-const POPUP_WIDTH: f64 = 240.0;
-const POPUP_HEIGHT: f64 = 210.0;
+const POPUP_WIDTH: f64 = 220.0;
+const POPUP_HEIGHT: f64 = 180.0;
 
 struct PauseMenuState {
     rest_item: CheckMenuItem<Wry>,

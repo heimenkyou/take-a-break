@@ -22,17 +22,19 @@
 				<span class="timer-icon">{{ timerLabelIcon }}</span>
 				<span class="timer-label-text">{{ timerLabel }}</span>
 			</div>
-			<div :class="['countdown', 'size-main', { 'countdown--muted': state.restTimerPaused }]">
-				{{ mainCountdown }}
-			</div>
-			<div class="action-row">
-				<button class="icon-action-btn" title="重置休息计时" @click.stop="resetRestTimer">
-					↻
-				</button>
-				<button :class="['icon-action-btn', { 'icon-action-btn--active': state.restTimerPaused }]"
-					:title="state.restTimerPaused ? '恢复休息计时' : '暂停休息计时'" @click.stop="toggleRestPause">
-					{{ state.restTimerPaused ? "▶" : "⏸" }}
-				</button>
+			<div class="main-timer-row">
+				<div :class="['countdown', 'size-main', { 'countdown--muted': state.restTimerPaused }]">
+					{{ mainCountdown }}
+				</div>
+				<div class="action-row action-row--vertical">
+					<button class="icon-action-btn" title="重置休息计时" @click.stop="resetRestTimer">
+						↻
+					</button>
+					<button :class="['icon-action-btn', { 'icon-action-btn--active': state.restTimerPaused }]"
+						:title="state.restTimerPaused ? '恢复休息计时' : '暂停休息计时'" @click.stop="toggleRestPause">
+						{{ state.restTimerPaused ? "▶" : "⏸" }}
+					</button>
+				</div>
 			</div>
 		</div>
 
@@ -201,8 +203,8 @@ onUnmounted(() => {
 
 <style scoped>
 .popup-root {
-	width: 240px;
-	height: 210px;
+	width: 220px;
+	height: 180px;
 	border-radius: 14px;
 	padding: 10px 14px 10px;
 	display: flex;
@@ -302,7 +304,7 @@ onUnmounted(() => {
 	flex-direction: column;
 	align-items: center;
 	justify-content: center;
-	gap: 6px;
+	gap: 4px;
 }
 
 .timer-label {
@@ -341,6 +343,14 @@ onUnmounted(() => {
 	font-size: 38px;
 }
 
+.main-timer-row {
+	position: relative;
+	width: 100%;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+}
+
 .countdown--muted {
 	-webkit-text-fill-color: #9ca3af;
 	color: #9ca3af;
@@ -348,7 +358,16 @@ onUnmounted(() => {
 
 .action-row {
 	display: flex;
-	gap: 6px;
+	gap: 3px;
+}
+
+.action-row--vertical {
+	position: absolute;
+	right: 6px;
+	top: 50%;
+	transform: translateY(-50%);
+	flex-direction: column;
+	gap: 1px;
 }
 
 
@@ -389,6 +408,11 @@ onUnmounted(() => {
 
 .icon-action-btn--compact {
 	flex-shrink: 0;
+	margin-left: -3px;
+}
+
+.water-row > .icon-action-btn--compact + .icon-action-btn--compact {
+	margin-left: -8px;
 }
 
 /* ── 分隔线 ── */
@@ -402,7 +426,7 @@ onUnmounted(() => {
 .water-row {
 	display: flex;
 	align-items: center;
-	gap: 5px;
+	gap: 1px;
 	flex-shrink: 0;
 	flex-wrap: wrap;
 }
@@ -427,6 +451,7 @@ onUnmounted(() => {
 	color: #374151;
 	font-weight: 500;
 	margin-left: auto;
+	margin-right: 0;
 }
 
 .water-time--muted {
