@@ -102,7 +102,7 @@ let autoRestTimer = null;
 /** @type {() => void | null} */
 let unlistenTick = null;
 /** @type {number|null} */
-let restMelodyTimer = null;
+let restMelodyTimeout = null;
 /** @type {string | null} */
 let previousAlertKind = null;
 
@@ -212,12 +212,11 @@ const ALERT_SOUND_NOTES = {
 		{ freq: 1047, start: 0.7, duration: 0.3 },
 	],
 	"resting-loop": [
-		{ freq: 523, start: 0, duration: 0.18 },
-		{ freq: 659, start: 0.22, duration: 0.18 },
-		{ freq: 784, start: 0.48, duration: 0.24 },
-		{ freq: 659, start: 0.9, duration: 0.2 },
-		{ freq: 587, start: 1.14, duration: 0.2 },
-		{ freq: 698, start: 1.4, duration: 0.28 },
+		{ freq: 523, start: 0, duration: 0.28 },
+		{ freq: 587, start: 0.32, duration: 0.24 },
+		{ freq: 659, start: 0.62, duration: 0.3 },
+		{ freq: 587, start: 0.98, duration: 0.24 },
+		{ freq: 523, start: 1.28, duration: 0.34 },
 	],
 	"resting-end": [
 		{ freq: 1047, start: 0, duration: 0.18 },
@@ -231,7 +230,11 @@ const ALERT_SOUND_NOTES = {
 	],
 };
 
-/** 使用 Web Audio API 生成简短提示音，避免额外音频素材依赖 */
+/**
+ * 使用 Web Audio API 生成简短提示音，避免额外音频素材依赖。
+ * @param {"sitting" | "resting" | "resting-loop" | "resting-end" | "water"} kind
+ * @returns {void}
+ */
 function playAlertSound(kind) {
 	const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
 	if (!AudioContextCtor) return;
@@ -248,7 +251,12 @@ function playAlertSound(kind) {
 		oscillator.type = "sine";
 		oscillator.frequency.value = note.freq;
 		gainNode.gain.setValueAtTime(0.0001, now + note.start);
-		gainNode.gain.exponentialRampToValueAtTime(0.12, now + note.start + 0.02);
+		const peakGain = kind === "resting-loop" ? 0.07 : 0.12;
+		const attack = kind === "resting-loop" ? 0.04 : 0.02;
+		gainNode.gain.exponentialRampToValueAtTime(
+			peakGain,
+			now + note.start + attack,
+		);
 		gainNode.gain.exponentialRampToValueAtTime(
 			0.0001,
 			now + note.start + note.duration,
@@ -263,11 +271,15 @@ function playAlertSound(kind) {
 		() => {
 			ctx.close();
 		},
-		kind === "resting-loop" ? 2600 : 1200,
+		kind === "resting-loop" ? 2200 : 1200,
 	);
 }
 
-/** 根据提醒状态切换播放对应提示音，避免每秒 tick 重复触发 */
+/**
+ * 根据提醒状态切换播放对应提示音，避免每秒 tick 重复触发。
+ * @param {"sitting" | "resting" | "water" | null} nextAlertKind
+ * @returns {void}
+ */
 function syncAlertSound(nextAlertKind) {
 	const previous = previousAlertKind;
 	previousAlertKind = nextAlertKind ?? null;
@@ -282,18 +294,31 @@ function syncAlertSound(nextAlertKind) {
 	}
 }
 
-/** 休息阶段每隔一段时间播放短旋律，提醒当前仍在休息中 */
+/**
+ * 休息阶段按间隔播放短旋律，避免最后一次提示和结束音撞在一起。
+ * @returns {void}
+ */
 function startRestMelodyLoop() {
 	stopRestMelodyLoop();
-	restMelodyTimer = setInterval(() => {
-		playAlertSound("resting-loop");
-	}, 30000);
+	const scheduleNext = () => {
+		restMelodyTimeout = setTimeout(() => {
+			restMelodyTimeout = null;
+			if (state.value.activeAlert !== "resting") return;
+			if (state.value.restRemaining <= 30) return;
+
+			playAlertSound("resting-loop");
+			scheduleNext();
+		}, 30000);
+	};
+
+	// 让尾声提前收口，避免与结束音挤在同一秒。
+	scheduleNext();
 }
 
 function stopRestMelodyLoop() {
-	if (restMelodyTimer !== null) {
-		clearInterval(restMelodyTimer);
-		restMelodyTimer = null;
+	if (restMelodyTimeout !== null) {
+		clearTimeout(restMelodyTimeout);
+		restMelodyTimeout = null;
 	}
 }
 
